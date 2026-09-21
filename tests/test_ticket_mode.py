@@ -334,3 +334,45 @@ def test_delete_still_rejects_garbage_id(client, login, graph_dir):
     login("alice", "alicepw")
     resp = client.post("/gerrit_vis/graphs/delete/not-an-id")
     assert resp.status_code == 400
+
+
+# --------------------------------------------------------------------------
+# Output sanitising: server paths never reach the browser
+# --------------------------------------------------------------------------
+
+
+def test_sanitizer_strips_the_configured_data_dir(app, tmp_path):
+    """The static list cannot know where an operator put the data. The
+    first real install used /var/lib/portal and the path leaked."""
+    from portal.tools.gc_graph import _deployment_paths, _sanitize_output
+
+    with app.app_context():
+        graph_dir = app.config["GRAPH_OUTPUT_DIR"]
+        line = f'{{"html_path": "{graph_dir}/61965.html", "anchor": 61965}}\n'
+        out = _sanitize_output(line, _deployment_paths())
+    assert graph_dir not in out
+    assert "61965.html" in out
+
+
+def test_sanitizer_strips_common_system_prefixes():
+    from portal.tools.gc_graph import _sanitize_output
+
+    for prefix in (
+        "/root/x/y",
+        "/srv/http/z",
+        "/etc/secret",
+        "/home/me/f",
+        "/var/lib/p/g",
+        "/opt/app/q",
+    ):
+        line = f'File "{prefix}/thing.py", line 3\n'
+        out = _sanitize_output(line)
+        assert prefix not in out, prefix
+        assert "thing.py" in out
+
+
+def test_sanitizer_leaves_ordinary_text_alone():
+    from portal.tools.gc_graph import _sanitize_output
+
+    line = "Building graph for LU-12187: 48 merged, 19 chains\n"
+    assert _sanitize_output(line, ("/var/lib/portal",)) == line

@@ -362,7 +362,7 @@ def _do_run(params, socketio, room, kind, positional, file_id):
         # can read the resolved ticket anchor for a Gerrit deep-link.
         last_json = None
         for line in process.stdout:
-            sanitized = _sanitize_output(line)
+            sanitized = _sanitize_output(line, _deployment_paths())
             socketio.emit("output", {"line": sanitized}, room=room)
             stripped = line.strip()
             if stripped.startswith("{") and stripped.endswith("}"):
@@ -460,7 +460,15 @@ _SENSITIVE_PATHS = [
     "/srv/",
     "/etc/",
     "/home/",
+    "/var/",
+    "/opt/",
 ]
+
+
+def _deployment_paths():
+    """The directories this install writes to, wherever they are."""
+    cfg = current_app.config
+    return (cfg.get("GRAPH_OUTPUT_DIR"), cfg.get("DATA_DIR"), cfg.get("GC_CWD"))
 
 
 from portal.tools.graph_stats import (  # noqa: E402
@@ -493,9 +501,19 @@ def _normalize_labels(raw):
     return out
 
 
-def _sanitize_output(line):
-    """Strip server filesystem paths and Python tracebacks from output."""
-    for path in _SENSITIVE_PATHS:
+def _sanitize_output(line, extra_paths=()):
+    """Strip server filesystem paths and Python tracebacks from output.
+
+    The static list covers the usual system locations. ``extra_paths``
+    is for the directories this deployment actually uses -- the data
+    dir, the graph dir -- which can be anywhere the operator chose, so
+    a fixed list would miss them. The first real install put data under
+    /var/lib and the graph path went straight to the browser.
+    """
+    for path in list(extra_paths) + _SENSITIVE_PATHS:
+        if not path:
+            continue
+        path = path.rstrip("/") + "/"
         if path in line:
             line = re.sub(
                 r'(?:File\s+")?' + re.escape(path) + r'[^\s",:]+',
