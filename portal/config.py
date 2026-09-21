@@ -17,6 +17,8 @@ of them.
 
 import os
 import secrets
+import shutil
+import sys
 from datetime import time as _time
 from datetime import timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -65,6 +67,21 @@ def _resolve_timezone(name):
         return ZoneInfo(name)
     except (ZoneInfoNotFoundError, ValueError):
         return ZoneInfo("UTC")
+
+
+def _default_gc_bin():
+    """Where the gc CLI is when nobody said.
+
+    The obvious answer -- "gc, on PATH" -- is wrong under systemd: the
+    unit runs the venv's interpreter directly, and PATH does not include
+    the venv's bin/, so the CLI installed right next to the app is
+    invisible. Look beside the interpreter first, then PATH, and only
+    then fall back to the bare name so the eventual error names it.
+    """
+    beside = os.path.join(sys.prefix, "bin", "gc")
+    if os.access(beside, os.X_OK):
+        return beside
+    return shutil.which("gc") or "gc"
 
 
 def _secret_key(testing):
@@ -157,9 +174,9 @@ def build_config(testing=False):
         # a portal without one should not advertise it.
         "DASHBOARD_PREFIX": (_env("DASHBOARD_PREFIX", "") or "").rstrip("/"),
         "DASHBOARD_APP_PATH": _env("DASHBOARD_APP_PATH", "/gerrit_dash_app/"),
-        # The external `gc` CLI (gerrit-cli). Resolved on PATH by default
-        # so a venv install just works; override to pin a specific one.
-        "GC_BIN": _env("GC_BIN", "gc"),
+        # The external `gc` CLI (gerrit-cli). Override to pin a specific
+        # binary; otherwise it is found next to the running interpreter.
+        "GC_BIN": _env("GC_BIN") or _default_gc_bin(),
         "GC_CWD": _env("GC_CWD") or None,
         # Concurrency caps, to spread load on the Gerrit server.
         "INTERACTIVE_RUN_CONCURRENCY": max(1, _env_int("INTERACTIVE_RUN_CONCURRENCY", 3)),

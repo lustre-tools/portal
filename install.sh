@@ -295,15 +295,18 @@ do_install() {
         write_file "$ENV_FILE" 600 <<EOF
 # Written by install.sh on $(date -u '+%Y-%m-%d %H:%M UTC'). Secrets live
 # here; keep the mode at 600 and out of version control.
-PORTAL_SECRET_KEY=$SECRET
-PORTAL_SITE_NAME=$SITE_NAME
-PORTAL_DATA_DIR=$DATA_DIR
-PORTAL_BIND_HOST=127.0.0.1
-PORTAL_BIND_PORT=$PORT
-PORTAL_PUBLIC_PROJECT=$PUBLIC_PROJECT
-GERRIT_URL=$GERRIT_URL
-GERRIT_USER=$GERRIT_USER
-GERRIT_PASS=${GERRIT_PASS:-}
+# Values are double-quoted: systemd, python-dotenv and a shell all read
+# that the same way, and a site name with a space or a bracket in it is
+# then not a syntax error for anyone.
+PORTAL_SECRET_KEY="$SECRET"
+PORTAL_SITE_NAME="$SITE_NAME"
+PORTAL_DATA_DIR="$DATA_DIR"
+PORTAL_BIND_HOST="127.0.0.1"
+PORTAL_BIND_PORT="$PORT"
+PORTAL_PUBLIC_PROJECT="$PUBLIC_PROJECT"
+GERRIT_URL="$GERRIT_URL"
+GERRIT_USER="$GERRIT_USER"
+GERRIT_PASS="${GERRIT_PASS:-}"
 EOF
         if [ "$DEV" = 0 ]; then
             # Readable by the service, writable only by root.
@@ -360,7 +363,7 @@ EOF
         run install -d -m 750 "$DATA_DIR/dashboard-public"
         run chown "$SVC_USER:$SVC_USER" "$DATA_DIR/dashboard-public"
         if [ "$DRY_RUN" = 0 ] && ! grep -q PORTAL_DASHBOARD_PREFIX "$ENV_FILE"; then
-            printf 'PORTAL_DASHBOARD_PREFIX=/gerrit_dash\nPORTAL_DASHBOARD_APP_PATH=/gerrit_dash_app/\n' >> "$ENV_FILE"
+            printf 'PORTAL_DASHBOARD_PREFIX="/gerrit_dash"\nPORTAL_DASHBOARD_APP_PATH="/gerrit_dash_app/"\n' >> "$ENV_FILE"
         fi
     fi
 
