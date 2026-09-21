@@ -149,13 +149,11 @@ detect_nginx_layout() {
         return 1
     fi
 
-    # http-level snippets (the rate-limit zone) must be somewhere that
-    # nginx.conf includes from inside http{}.
-    if [ -d /etc/nginx/conf.d ]; then
-        NGINX_SNIPPET_DIR=/etc/nginx/conf.d
-    else
-        NGINX_SNIPPET_DIR="$NGINX_SITE_DIR"
-    fi
+    # The shared snippets are pulled in by absolute path from the site
+    # file, so they live in a directory of their own that nginx never
+    # includes on its own. Putting them in conf.d would apply their
+    # add_header and proxy_set_header lines to every site on the host.
+    NGINX_SNIPPET_DIR=/etc/nginx/portal
     return 0
 }
 
@@ -283,14 +281,14 @@ do_install() {
         local SECRET SITE_NAME GERRIT_URL GERRIT_USER GERRIT_PASS PUBLIC_PROJECT
         # $PYTHON, not the venv: --dry-run never creates the venv.
         SECRET=$("$PYTHON" -c 'import secrets; print(secrets.token_hex(32))')
-        ask SITE_NAME "Site name (shown in the header)" "Lustre Tools"
-        ask GERRIT_URL "Gerrit URL" "https://review.whamcloud.com"
-        ask PUBLIC_PROJECT "Project everyone may graph" "fs/lustre-release"
+        ask SITE_NAME "Site name (shown in the header)" "${PORTAL_SITE_NAME:-Lustre Tools}"
+        ask GERRIT_URL "Gerrit URL" "${GERRIT_URL:-https://review.whamcloud.com}"
+        ask PUBLIC_PROJECT "Project everyone may graph" "${PORTAL_PUBLIC_PROJECT:-fs/lustre-release}"
         echo
         echo "Gerrit credentials are optional. Without them the portal queries"
         echo "Gerrit anonymously, which is enough for public projects only."
-        ask GERRIT_USER "Gerrit HTTP username (blank for anonymous)" ""
-        if [ -n "$GERRIT_USER" ]; then
+        ask GERRIT_USER "Gerrit HTTP username (blank for anonymous)" "${GERRIT_USER:-}"
+        if [ -n "$GERRIT_USER" ] && [ -z "${GERRIT_PASS:-}" ]; then
             ask_secret GERRIT_PASS "Gerrit HTTP password"
         fi
 
@@ -322,7 +320,7 @@ EOF
     if [ ! -f "$DATA_DIR/users.json" ] && [ "$DRY_RUN" = 0 ]; then
         step "First account"
         local ADMIN_USER ADMIN_PASS ADMIN_PASS2
-        ask ADMIN_USER "Admin username" "admin"
+        ask ADMIN_USER "Admin username" "${PORTAL_ADMIN_USER:-admin}"
         if [ -t 0 ] && [ -n "$ADMIN_USER" ]; then
             ask_secret ADMIN_PASS "Password for $ADMIN_USER"
             ask_secret ADMIN_PASS2 "Repeat"
@@ -370,7 +368,7 @@ EOF
     step "Installing systemd units"
     render "$SCRIPT_DIR/deploy/portal.service.in" | write_file /etc/systemd/system/portal.service 644
     render "$SCRIPT_DIR/deploy/portal-refresh.service.in" | write_file /etc/systemd/system/portal-refresh.service 644
-    cat "$SCRIPT_DIR/deploy/portal-refresh.timer" | write_file /etc/systemd/system/portal-refresh.timer 644
+    write_file /etc/systemd/system/portal-refresh.timer 644 < "$SCRIPT_DIR/deploy/portal-refresh.timer"
     if [ "$WITH_DASHBOARD" = 1 ]; then
         render "$SCRIPT_DIR/deploy/gerrit-dashboard.service.in" | write_file /etc/systemd/system/portal-dashboard.service 644
     fi
@@ -382,16 +380,15 @@ EOF
         step "Configuring nginx ($NGINX_SITE_DIR)"
         ask SERVER_NAME "Public hostname" "${SERVER_NAME:-$(hostname -f 2>/dev/null || hostname)}"
 
-        TLS_CERT="/etc/letsencrypt/live/$SERVER_NAME/fullchain.pem"
-        TLS_KEY="/etc/letsencrypt/live/$SERVER_NAME/privkey.pem"
-        ACME_ROOT="/var/www/html"
+        TLS_CERT="${PORTAL_TLS_CERT:-/etc/letsencrypt/live/$SERVER_NAME/fullchain.pem}"
+        TLS_KEY="${PORTAL_TLS_KEY:-/etc/letsencrypt/live/$SERVER_NAME/privkey.pem}"
+        ACME_ROOT="${PORTAL_ACME_ROOT:-/var/www/html}"
         ask TLS_CERT "TLS certificate" "$TLS_CERT"
         ask TLS_KEY  "TLS private key" "$TLS_KEY"
         ask ACME_ROOT "ACME webroot (for certificate renewal)" "$ACME_ROOT"
 
-        cat "$SCRIPT_DIR/deploy/portal-proxy.conf"     | write_file "$NGINX_SNIPPET_DIR/portal-proxy.conf" 644
-        cat "$SCRIPT_DIR/deploy/portal-headers.conf"   | write_file "$NGINX_SNIPPET_DIR/portal-headers.conf" 644
-        cat "$SCRIPT_DIR/deploy/portal-ratelimit.conf" | write_file "$NGINX_SNIPPET_DIR/portal-ratelimit.conf" 644
+        write_file "$NGINX_SNIPPET_DIR/portal-proxy.conf" 644   < "$SCRIPT_DIR/deploy/portal-proxy.conf"
+        write_file "$NGINX_SNIPPET_DIR/portal-headers.conf" 644 < "$SCRIPT_DIR/deploy/portal-headers.conf"
 
         # The dashboard block is substituted separately because it spans
         # several lines, which sed's s/// cannot carry.
@@ -460,10 +457,8 @@ do_uninstall() {
     if detect_nginx_layout; then
         run rm -f "$NGINX_SITE_DIR/portal.conf"
         [ -n "$NGINX_ENABLE_DIR" ] && run rm -f "$NGINX_ENABLE_DIR/portal.conf"
-        run rm -f "$NGINX_SNIPPET_DIR/portal-proxy.conf" \
-                  "$NGINX_SNIPPET_DIR/portal-headers.conf" \
-                  "$NGINX_SNIPPET_DIR/portal-ratelimit.conf"
-        nginx -t >/dev/null 2>&1 && run systemctl reload nginx || true
+        run rm -rf "$NGINX_SNIPPET_DIR"
+        if nginx -t >/dev/null 2>&1; then run systemctl reload nginx; fi
     fi
 
     ok "Units and site removed."

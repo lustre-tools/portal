@@ -9,6 +9,12 @@
 #
 # Generated from deploy/nginx-portal.conf.in by install.sh.
 
+# Rate-limit zone for the login endpoint. limit_req_zone is only valid
+# at http level -- and a site file is always included from inside
+# http{}, so declaring it here works on every distribution's layout.
+# 10 MB tracks on the order of 160k client addresses.
+limit_req_zone $binary_remote_addr zone=portal_login:10m rate=10r/m;
+
 server {
     listen 80;
     listen [::]:80;
@@ -44,8 +50,6 @@ server {
     error_log  @LOG_DIR@/portal-error.log;
 
     # --- rate limiting -------------------------------------------------
-    # The zone itself is declared in the http{} snippet installed
-    # alongside this file (nginx only allows limit_req_zone there).
     location = /login {
         limit_req zone=portal_login burst=5 nodelay;
         limit_req_status 429;

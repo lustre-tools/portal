@@ -136,10 +136,16 @@ def test_nginx_forwards_the_host_header():
 
 
 def test_nginx_rate_limits_the_login_endpoint():
+    """The zone is declared in the site file itself. A separate snippet
+    would need an http-level include directory, and not every layout has
+    one -- Arch's servers-enabled setup does not -- so it silently ended
+    up somewhere nginx never read."""
     site = render("nginx-portal.conf.in")
+    assert "limit_req_zone $binary_remote_addr zone=portal_login" in site
     assert "limit_req zone=portal_login" in site
-    with open(os.path.join(DEPLOY, "portal-ratelimit.conf")) as f:
-        assert "limit_req_zone" in f.read()
+    assert site.index("limit_req_zone") < site.index("limit_req zone="), (
+        "the zone must be declared before it is used"
+    )
 
 
 def test_nginx_websocket_location_upgrades():
