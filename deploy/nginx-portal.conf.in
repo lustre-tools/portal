@@ -1,0 +1,78 @@
+# nginx site for the Lustre Portal.
+#
+# Self-contained on purpose: every security header is set here rather
+# than inherited from a global http{} block, so a deployment that does
+# not have one is still protected. If you DO set these globally, note
+# that nginx's add_header does not merge -- a single add_header in a
+# location drops every inherited one -- which is why the proxy blocks
+# below restate the whole set.
+#
+# Generated from deploy/nginx-portal.conf.in by install.sh.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name @SERVER_NAME@;
+
+    # Leave ACME reachable over plain HTTP so renewals keep working.
+    location ^~ /.well-known/acme-challenge/ {
+        root @ACME_ROOT@;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name @SERVER_NAME@;
+
+    ssl_certificate     @TLS_CERT@;
+    ssl_certificate_key @TLS_KEY@;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    # Generated graphs embed their own data; a few are large.
+    client_max_body_size 4m;
+
+    access_log @LOG_DIR@/portal-access.log;
+    error_log  @LOG_DIR@/portal-error.log;
+
+    # --- rate limiting -------------------------------------------------
+    # The zone itself is declared in the http{} snippet installed
+    # alongside this file (nginx only allows limit_req_zone there).
+    location = /login {
+        limit_req zone=portal_login burst=5 nodelay;
+        limit_req_status 429;
+
+        proxy_pass http://127.0.0.1:@PORT@;
+        include @SNIPPET_DIR@/portal-proxy.conf;
+        include @SNIPPET_DIR@/portal-headers.conf;
+    }
+
+    # --- WebSocket ------------------------------------------------------
+    location /socket.io/ {
+        proxy_pass http://127.0.0.1:@PORT@;
+        include @SNIPPET_DIR@/portal-proxy.conf;
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        # A graph run streams for as long as gc takes.
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+    }
+
+@DASHBOARD_BLOCK@
+    # --- the app --------------------------------------------------------
+    location / {
+        proxy_pass http://127.0.0.1:@PORT@;
+        include @SNIPPET_DIR@/portal-proxy.conf;
+        include @SNIPPET_DIR@/portal-headers.conf;
+    }
+}

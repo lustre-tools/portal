@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} - {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="error-page">
+    <h1>{{ code }}</h1>
+    <p>{{ message }}</p>
+    <p><a href="{{ url_for('gerrit_vis.index') }}">Back to the tools</a></p>
+</div>
+{% endblock %}

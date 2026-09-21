@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lustre-portal"
+version = "0.1.0"
+description = "A web portal centralising access to Lustre development tools"
+readme = "README.md"
+license = { text = "BSD-2-Clause" }
+requires-python = ">=3.11"
+dependencies = [
+    "flask>=3.0",
+    "flask-socketio>=5.3",
+    "eventlet>=0.35",
+    "python-dotenv>=1.0",
+]
+
+# The Gerrit graphs are produced by the `gc` CLI from
+# github.com/lustre-tools/llm_code_and_review_tools, which is vendored as
+# a git submodule and installed from that checkout. It is deliberately
+# NOT a named dependency: an unrelated project owns "gerrit-cli" on PyPI,
+# so resolving it by name would install the wrong package.
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+portal = "portal.__main__:main"
+portal-users = "portal.cli:main"
+portal-refresh = "portal.refresh:main"
+
+[tool.setuptools.packages.find]
+include = ["portal*"]
+
+[tool.setuptools.package-data]
+portal = ["templates/*.html", "templates/**/*.html", "static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::eventlet.EventletDeprecationWarning",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+exclude = ["vendor", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4"]
+ignore = [
+    # The graph tool builds long, readable emit() calls; wrapping them
+    # hurts more than it helps.
+    "E501",
+]

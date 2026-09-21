@@ -1,0 +1,12 @@
+[Unit]
+Description=Check twice an hour for portal graphs due a refresh
+
+[Timer]
+OnCalendar=*:00,30
+# Catch up after downtime rather than skipping a slot silently.
+Persistent=true
+# Avoid every deployment hitting Gerrit on the same second.
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

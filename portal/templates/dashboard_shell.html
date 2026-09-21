@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Gerrit Dashboard - {{ site_name }}{% endblock %}
+{% block body_class %}shell-body{% endblock %}
+{% block container_class %}shell-main{% endblock %}
+{% block nav_active_dash %}nav-active{% endblock %}
+
+{% block head %}
+<style>
+  /* App-shell: the navbar stays fixed height at the top; the iframe fills
+     the rest of the viewport, so only the body changes when you're on the
+     dashboard. The iframe scrolls internally. */
+  body.shell-body { margin: 0; display: flex; flex-direction: column; min-height: 100vh; }
+  body.shell-body main.shell-main {
+    flex: 1 1 auto; width: 100%; max-width: none;
+    padding: 0; margin: 0; display: flex;
+  }
+  .dashboard-frame { flex: 1 1 auto; width: 100%; border: 0; display: block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<iframe id="dash-frame" src="{{ dash_src }}" class="dashboard-frame" title="Gerrit Dashboard"></iframe>
+<script>
+  // Keep the outer URL in step with the embedded board. The iframe is
+  // same-origin, so reading its location is allowed. This makes a board
+  // deep-linkable and lets a refresh keep your place, without adding a
+  // history entry for every click inside the frame.
+  (function () {
+    var APP = {{ dash_app_path | tojson }};
+    var SHELL = {{ dash_prefix | tojson }};
+    var f = document.getElementById("dash-frame");
+    f.addEventListener("load", function () {
+      try {
+        var inner = f.contentWindow.location.pathname;
+        if (inner.indexOf(APP) !== 0) return;
+        var outer = SHELL + "/" + inner.slice(APP.length).replace(/^\//, "");
+        if (outer !== location.pathname) history.replaceState(null, "", outer);
+      } catch (e) { /* blocked or cross-origin: leave the URL alone */ }
+    });
+  })();
+</script>
+{% endblock %}

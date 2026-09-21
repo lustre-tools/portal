@@ -1,0 +1,36 @@
+[Unit]
+Description=Lustre Portal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+WorkingDirectory=@APP_DIR@
+EnvironmentFile=@CONFIG_DIR@/portal.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@VENV@/bin/portal
+Restart=on-failure
+RestartSec=5
+
+# The service needs to write exactly one directory. Everything else on
+# the filesystem is read-only to it, so a bug in the app -- or in the gc
+# CLI it shells out to -- cannot modify the system.
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=@DATA_DIR@
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+# AF_UNIX is needed for DNS resolution on some systems, AF_NETLINK by
+# the resolver; the rest of the address families are not used.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

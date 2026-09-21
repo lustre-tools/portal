@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{{ private_label }} - {{ site_name }}{% endblock %}
+{% block body_class %}private-zone theme-{{ private_theme }}{% endblock %}
+{% block nav_active_private %}nav-active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>{{ private_label }}</h2>
+</div>
+
+{% if files %}
+<table class="file-table">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Size</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for f in files %}
+        <tr>
+            <td><a href="{{ url_for('private.serve_file', filename=f.name) }}">{{ f.name }}</a></td>
+            <td>{{ "%.1f"|format(f.size / 1024) }} KB</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="empty-state">No files available yet.</p>
+{% endif %}
+{% endblock %}

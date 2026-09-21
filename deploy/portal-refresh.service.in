@@ -1,0 +1,27 @@
+[Unit]
+Description=Regenerate portal graphs whose scheduled refresh is due
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=@USER@
+Group=@GROUP@
+WorkingDirectory=@APP_DIR@
+EnvironmentFile=@CONFIG_DIR@/portal.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@VENV@/bin/portal-refresh
+
+# A refresh can take a while per graph; bound the whole run so a hung
+# Gerrit call cannot keep the timer's unit active until the next tick.
+TimeoutStartSec=30min
+
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=@DATA_DIR@
+PrivateTmp=true
+NoNewPrivileges=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK

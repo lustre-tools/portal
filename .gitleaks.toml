@@ -1,0 +1,25 @@
+# gitleaks configuration.
+#
+# The point of running this is that a real credential must never reach
+# the repository. Test fixtures and documented placeholders are not
+# credentials, so they are allowlisted individually rather than by
+# switching rules off.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test fixtures: passwords that only exist inside the suite"
+paths = ['''^tests/''']
+
+[[allowlists]]
+description = "Documented placeholders, which are blank by design"
+paths = ['''^\.env\.example$''', '''^README\.md$''', '''^CONTRIBUTING\.md$''']
+
+[[allowlists]]
+description = "The anti-enumeration dummy hash is a constant, not a secret"
+regexes = ['''dummy-never-matches''']
+
+[[allowlists]]
+description = "Vendored dependency; scanned in its own repository"
+paths = ['''^vendor/''']

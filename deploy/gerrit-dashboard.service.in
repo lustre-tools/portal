@@ -1,0 +1,39 @@
+[Unit]
+Description=Gerrit dashboard (public instance, embedded by the portal)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+WorkingDirectory=@APP_DIR@
+EnvironmentFile=@CONFIG_DIR@/portal.env
+Environment=PYTHONUNBUFFERED=1
+Environment=GD_HOST=127.0.0.1
+Environment=GD_PORT=@DASH_PORT@
+Environment=GD_DATA_DIR=@DATA_DIR@/dashboard-public
+
+# GD_COMMUNITY scopes every Gerrit *query* -- not just the rendering --
+# to the public project. It is the only thing that makes this instance
+# safe to expose without a login, because it reuses the same Gerrit
+# credentials as everything else and those credentials may well be able
+# to see more. Do not remove it while the instance is unauthenticated.
+Environment=GD_COMMUNITY=1
+
+ExecStart=@VENV@/bin/gerrit-dashboard serve
+Restart=on-failure
+RestartSec=5
+
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=@DATA_DIR@
+PrivateTmp=true
+NoNewPrivileges=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

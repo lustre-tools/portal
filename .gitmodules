@@ -1,0 +1,3 @@
+[submodule "vendor/llm_tools"]
+	path = vendor/llm_tools
+	url = https://github.com/lustre-tools/llm_code_and_review_tools.git
