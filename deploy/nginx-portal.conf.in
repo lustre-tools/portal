@@ -40,7 +40,9 @@ server {
     ssl_certificate_key @TLS_KEY@;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
-    ssl_session_cache shared:SSL:10m;
+    # A zone name of our own: "SSL" is the common default and a host with
+    # another site using it at a different size fails nginx -t.
+    ssl_session_cache shared:portal_ssl:10m;
     ssl_session_timeout 1d;
 
     # Generated graphs embed their own data; a few are large.

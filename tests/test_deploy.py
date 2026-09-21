@@ -192,3 +192,14 @@ def test_env_example_has_no_real_values():
                 continue
             key, _, value = line.partition("=")
             assert value == "", f"{key} must be blank in .env.example, got a value"
+
+
+def test_nginx_shared_zones_have_portal_specific_names():
+    """Shared-memory zone names are global to the nginx instance. A
+    generic name such as "SSL" collides with any other site on the host
+    that used the same name at a different size, and nginx -t fails."""
+    site = render("nginx-portal.conf.in")
+    for zone in re.findall(r"shared:([A-Za-z_]+):", site):
+        assert zone.startswith("portal"), f"zone {zone!r} is not portal-specific"
+    for zone in re.findall(r"zone=([A-Za-z_]+):", site):
+        assert zone.startswith("portal"), f"zone {zone!r} is not portal-specific"
