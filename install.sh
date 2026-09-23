@@ -390,6 +390,7 @@ EOF
         ask TLS_KEY  "TLS private key" "$TLS_KEY"
         ask ACME_ROOT "ACME webroot (for certificate renewal)" "$ACME_ROOT"
 
+        run install -d -m 755 "$NGINX_SNIPPET_DIR/site-extra"
         write_file "$NGINX_SNIPPET_DIR/portal-proxy.conf" 644   < "$SCRIPT_DIR/deploy/portal-proxy.conf"
         write_file "$NGINX_SNIPPET_DIR/portal-headers.conf" 644 < "$SCRIPT_DIR/deploy/portal-headers.conf"
 

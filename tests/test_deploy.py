@@ -203,3 +203,32 @@ def test_nginx_shared_zones_have_portal_specific_names():
         assert zone.startswith("portal"), f"zone {zone!r} is not portal-specific"
     for zone in re.findall(r"zone=([A-Za-z_]+):", site):
         assert zone.startswith("portal"), f"zone {zone!r} is not portal-specific"
+
+
+def test_nginx_has_a_hook_for_site_specific_locations():
+    """A deployment usually serves something the portal does not -- a
+    static directory, another gated service. Without a hook the only
+    way to add one is to edit the generated site file, which the next
+    install overwrites.
+
+    What matters is that the include sits in the HTTPS server block, not
+    the plain-HTTP redirect one. File order does not affect which
+    location nginx picks -- it matches the longest prefix regardless.
+    """
+    site = render("nginx-portal.conf.in")
+    assert "site-extra/*.conf" in site
+
+    blocks = site.split("server {")
+    https = next(b for b in blocks if "listen 443" in b)
+    assert "site-extra/*.conf" in https, (
+        "the hook must be in the HTTPS server block; in the redirect "
+        "block every request is answered by the 301 before it is reached"
+    )
+
+
+def test_installer_creates_the_site_extra_directory():
+    """An include of a glob that matches nothing is fine in nginx, but
+    the directory itself has to exist."""
+    with open(os.path.join(ROOT, "install.sh")) as f:
+        text = f.read()
+    assert 'install -d -m 755 "$NGINX_SNIPPET_DIR/site-extra"' in text

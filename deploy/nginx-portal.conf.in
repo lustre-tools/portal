@@ -75,6 +75,16 @@ server {
     }
 
 @DASHBOARD_BLOCK@
+    # --- site-specific locations ------------------------------------
+    # Anything this deployment serves that the portal itself does not:
+    # a static directory, another proxied service gated on /_authcheck,
+    # a redirect you are keeping alive for old links. Drop .conf files
+    # in that directory; an empty one is fine and is the default.
+    #
+    # Kept OUT of the portal's own template so an upgrade never fights
+    # your local additions.
+    include @SNIPPET_DIR@/site-extra/*.conf;
+
     # --- the app --------------------------------------------------------
     location / {
         proxy_pass http://127.0.0.1:@PORT@;
