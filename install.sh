@@ -6,10 +6,16 @@
 #   ./install.sh --dev           # local venv only, nothing system-wide
 #   ./install.sh --dry-run       # show every action, change nothing
 #   ./install.sh --uninstall     # remove units and site; keeps your data
+#   ./install.sh --render-site   # print the nginx site it would write, change nothing
 #
-# Anything this script cannot do without asking, it asks about once and
-# then remembers in @CONFIG_DIR@/portal.env. Re-running is safe: it
-# updates in place rather than starting over.
+# Every answer is remembered in /etc/portal/install.conf, so re-running it
+# to upgrade (git pull, then ./install.sh --yes) rebuilds exactly the same
+# site. An environment variable still overrides a remembered answer.
+#
+# The gc CLI and the dashboard come from the bundled vendor/llm_tools by
+# default. PORTAL_TOOLS_DIR=/path/to/llm_code_and_review_tools installs
+# them from a checkout you manage yourself instead; PORTAL_TOOLS_DIR=bundled
+# switches back.
 
 set -euo pipefail
 
@@ -21,25 +27,44 @@ DEV=0
 ACTION=install
 ASSUME_YES=0
 
-# Defaults for a system install. Every one is overridable by answering
-# the prompts, or by exporting the variable before running.
-APP_DIR="${PORTAL_APP_DIR:-/opt/portal}"
-DATA_DIR="${PORTAL_DATA_DIR:-/var/lib/portal}"
+# Answers from the previous run. Read, never sourced: it is plain
+# KEY="value" lines, and nothing in it should be able to run code.
+INSTALL_CONF="${PORTAL_CONFIG_DIR:-/etc/portal}/install.conf"
+saved() {
+    [ -r "$INSTALL_CONF" ] || return 0
+    sed -n "s/^$1=\"\(.*\)\"\$/\1/p" "$INSTALL_CONF" | tail -1
+}
+# pick <env value> <remembered key> <default>
+pick() {
+    if [ -n "$1" ]; then printf '%s' "$1"; return; fi
+    local v; v=$(saved "$2")
+    printf '%s' "${v:-$3}"
+}
+
+# An upgrade used to take every answer from the environment or a
+# default, so a plain re-run rebuilt the nginx site with the hostname
+# from `hostname -f` -- enough to take a live site offline. Precedence
+# is now: explicit environment, then the last run's answer, then default.
+APP_DIR=$(pick "${PORTAL_APP_DIR:-}" APP_DIR /opt/portal)
+DATA_DIR=$(pick "${PORTAL_DATA_DIR:-}" DATA_DIR /var/lib/portal)
 CONFIG_DIR="${PORTAL_CONFIG_DIR:-/etc/portal}"
-LOG_DIR="${PORTAL_LOG_DIR:-/var/log/nginx}"
-SVC_USER="${PORTAL_USER:-portal}"
-PORT="${PORTAL_BIND_PORT:-5000}"
-DASH_PORT="${PORTAL_DASH_PORT:-5056}"
-SERVER_NAME="${PORTAL_SERVER_NAME:-}"
+LOG_DIR=$(pick "${PORTAL_LOG_DIR:-}" LOG_DIR /var/log/nginx)
+SVC_USER=$(pick "${PORTAL_USER:-}" SVC_USER portal)
+PORT=$(pick "${PORTAL_BIND_PORT:-}" PORT 5000)
+DASH_PORT=$(pick "${PORTAL_DASH_PORT:-}" DASH_PORT 5056)
+SERVER_NAME=$(pick "${PORTAL_SERVER_NAME:-}" SERVER_NAME "")
+WANT_DASHBOARD=$(pick "${PORTAL_WITH_DASHBOARD:-}" WITH_DASHBOARD ask)
+TOOLS_DIR=$(pick "${PORTAL_TOOLS_DIR:-}" TOOLS_DIR "")
+[ "$TOOLS_DIR" = bundled ] && TOOLS_DIR=""
 WITH_DASHBOARD=0
 
 # Filled in later, but declared here because render() substitutes all of
 # them and `set -u` makes an unset one fatal -- the systemd units render
 # before the nginx questions are asked.
 VENV=""
-TLS_CERT=""
-TLS_KEY=""
-ACME_ROOT=""
+TLS_CERT=$(pick "${PORTAL_TLS_CERT:-}" TLS_CERT "")
+TLS_KEY=$(pick "${PORTAL_TLS_KEY:-}" TLS_KEY "")
+ACME_ROOT=$(pick "${PORTAL_ACME_ROOT:-}" ACME_ROOT "")
 NGINX_SITE_DIR=""
 NGINX_ENABLE_DIR=""
 NGINX_SNIPPET_DIR=""
@@ -194,6 +219,59 @@ dashboard_block() {
 EOF
 }
 
+# Hostname-derived defaults for the site. Separate so --render-site and a
+# real install compute them identically.
+site_defaults() {
+    # nginx shared-memory zone names are global to the instance, so
+    # they must differ between two portal sites on one host.
+    ZONE_ID=$(printf '%s' "$SERVER_NAME" | tr -c '[:alnum:]' '_' | sed 's/_*$//')
+    TLS_CERT="${TLS_CERT:-/etc/letsencrypt/live/$SERVER_NAME/fullchain.pem}"
+    TLS_KEY="${TLS_KEY:-/etc/letsencrypt/live/$SERVER_NAME/privkey.pem}"
+    ACME_ROOT="${ACME_ROOT:-/var/www/html}"
+}
+
+# The complete site file on stdout. The dashboard block is substituted
+# separately because it spans several lines, which sed's s/// cannot carry.
+render_site() {
+    render "$SCRIPT_DIR/deploy/nginx-portal.conf.in" \
+        | "$PYTHON" -c '
+import sys
+sys.stdout.write(sys.stdin.read().replace("@DASHBOARD_BLOCK@", sys.argv[1]))
+' "$(dashboard_block)"
+}
+
+save_answers() {
+    # No secrets live here -- those are in portal.env -- so a plain 0644
+    # file is fine, and root can read it back on the next run.
+    [ "$DRY_RUN" = 1 ] && { echo "  would write: $INSTALL_CONF"; return; }
+    install -d -m 755 "$CONFIG_DIR"
+    {
+        echo "# Written by install.sh on $(date -u '+%Y-%m-%d %H:%M UTC')."
+        echo "# The answers a re-run reuses. An environment variable overrides any"
+        echo "# of them for one run; edit here to change one for good."
+        for k in APP_DIR DATA_DIR LOG_DIR SVC_USER PORT DASH_PORT SERVER_NAME \
+                 ACME_ROOT WITH_DASHBOARD TOOLS_DIR; do
+            printf '%s="%s"\n' "$k" "${!k}"
+        done
+        # Only a customised certificate path is remembered. The default is
+        # derived from the hostname, and remembering it would keep loading
+        # the old certificate after the hostname changed.
+        [ "$TLS_CERT" != "/etc/letsencrypt/live/$SERVER_NAME/fullchain.pem" ] && printf 'TLS_CERT="%s"\n' "$TLS_CERT"
+        [ "$TLS_KEY"  != "/etc/letsencrypt/live/$SERVER_NAME/privkey.pem"   ] && printf 'TLS_KEY="%s"\n' "$TLS_KEY"
+        true
+    } > "$INSTALL_CONF"
+    chmod 644 "$INSTALL_CONF"
+}
+
+do_render_site() {
+    PYTHON=$(find_python) || die "Python 3.11 or newer is required."
+    NGINX_SNIPPET_DIR=/etc/nginx/portal
+    [ -n "$SERVER_NAME" ] || die "No hostname: set PORTAL_SERVER_NAME, or run a full install first."
+    case "$WANT_DASHBOARD" in 1|yes|true) WITH_DASHBOARD=1 ;; esac
+    site_defaults
+    render_site
+}
+
 # ---------------------------------------------------------------- install
 
 do_install() {
@@ -207,15 +285,21 @@ do_install() {
         die "A system install needs root. Use sudo, or --dev for a local venv."
     fi
 
-    if [ ! -e "$SCRIPT_DIR/vendor/llm_tools/gerrit_cli/pyproject.toml" ]; then
+    if [ -n "$TOOLS_DIR" ]; then
+        [ -f "$TOOLS_DIR/gerrit_cli/pyproject.toml" ] \
+            || die "PORTAL_TOOLS_DIR=$TOOLS_DIR is not an llm_code_and_review_tools checkout (no gerrit_cli/)."
+        ok "gc CLI from your checkout: $TOOLS_DIR"
+    elif [ ! -e "$SCRIPT_DIR/vendor/llm_tools/gerrit_cli/pyproject.toml" ]; then
         step "Fetching the gc CLI"
         # Not --recursive on purpose: that repo has a nested submodule
         # over SSH, which fails for anyone without the right keys, and
         # nothing here needs it.
         run git -C "$SCRIPT_DIR" submodule update --init vendor/llm_tools \
             || die "Could not fetch vendor/llm_tools. Clone with --recurse-submodules=no and retry."
+        ok "gc CLI source present"
+    else
+        ok "gc CLI source present"
     fi
-    ok "gc CLI source present"
 
     # ---- paths
     if [ "$DEV" = 1 ]; then
@@ -261,11 +345,26 @@ do_install() {
     # gerrit-cli first: gerrit-dashboard needs it, and deliberately does
     # not declare it as a dependency because an unrelated project owns
     # that name on PyPI.
-    run "$VENV/bin/pip" install -q -e "$APP_DIR/vendor/llm_tools/llm_tool_common"
-    run "$VENV/bin/pip" install -q -e "$APP_DIR/vendor/llm_tools/gerrit_cli"
-    run "$VENV/bin/pip" install -q -e "$APP_DIR/vendor/llm_tools/gerrit_dashboard"
+    local pkg
+    if [ -n "$TOOLS_DIR" ]; then
+        # A checkout outside the app is installed as a COPY, not an
+        # editable link. The service runs unprivileged under ProtectHome,
+        # so at run time it usually cannot read such a checkout at all --
+        # one under /root, say. The price: after pulling that checkout,
+        # re-run this script to pick the new version up.
+        for pkg in llm_tool_common gerrit_cli gerrit_dashboard; do
+            run "$VENV/bin/pip" install -q "$TOOLS_DIR/$pkg"       # dependencies
+            run "$VENV/bin/pip" install -q --no-deps --force-reinstall "$TOOLS_DIR/$pkg"
+        done
+        ok "gerrit-cli and gerrit-dashboard installed from $TOOLS_DIR ($(git -C "$TOOLS_DIR" log -1 --format='%h %ad' --date=short 2>/dev/null || echo 'not a git checkout'))"
+    else
+        for pkg in llm_tool_common gerrit_cli gerrit_dashboard; do
+            run "$VENV/bin/pip" install -q -e "$APP_DIR/vendor/llm_tools/$pkg"
+        done
+        ok "gerrit-cli and gerrit-dashboard installed from the bundled vendor/llm_tools"
+    fi
     run "$VENV/bin/pip" install -q -e "$APP_DIR"
-    ok "portal, gerrit-cli and gerrit-dashboard installed"
+    ok "portal installed"
 
     step "Creating $DATA_DIR"
     run install -d -m 750 "$DATA_DIR"
@@ -364,7 +463,7 @@ EOF
     # --yes otherwise always accepts, and a host that already runs its
     # own dashboard would get a second one competing for the port.
     local want_dash
-    case "${PORTAL_WITH_DASHBOARD:-ask}" in
+    case "$WANT_DASHBOARD" in
         0|no|false)  want_dash=1 ;;
         1|yes|true)  want_dash=0 ;;
         *)           confirm "Also run the public Gerrit dashboard and embed it?" && want_dash=0 || want_dash=1 ;;
@@ -393,13 +492,7 @@ EOF
     if detect_nginx_layout; then
         step "Configuring nginx ($NGINX_SITE_DIR)"
         ask SERVER_NAME "Public hostname" "${SERVER_NAME:-$(hostname -f 2>/dev/null || hostname)}"
-        # nginx shared-memory zone names are global to the instance, so
-        # they must differ between two portal sites on one host.
-        ZONE_ID=$(printf '%s' "$SERVER_NAME" | tr -c '[:alnum:]' '_' | sed 's/_*$//')
-
-        TLS_CERT="${PORTAL_TLS_CERT:-/etc/letsencrypt/live/$SERVER_NAME/fullchain.pem}"
-        TLS_KEY="${PORTAL_TLS_KEY:-/etc/letsencrypt/live/$SERVER_NAME/privkey.pem}"
-        ACME_ROOT="${PORTAL_ACME_ROOT:-/var/www/html}"
+        site_defaults
         ask TLS_CERT "TLS certificate" "$TLS_CERT"
         ask TLS_KEY  "TLS private key" "$TLS_KEY"
         ask ACME_ROOT "ACME webroot (for certificate renewal)" "$ACME_ROOT"
@@ -408,15 +501,8 @@ EOF
         write_file "$NGINX_SNIPPET_DIR/portal-proxy.conf" 644   < "$SCRIPT_DIR/deploy/portal-proxy.conf"
         write_file "$NGINX_SNIPPET_DIR/portal-headers.conf" 644 < "$SCRIPT_DIR/deploy/portal-headers.conf"
 
-        # The dashboard block is substituted separately because it spans
-        # several lines, which sed's s/// cannot carry.
         local site="$NGINX_SITE_DIR/portal.conf"
-        render "$SCRIPT_DIR/deploy/nginx-portal.conf.in" \
-            | "$PYTHON" -c '
-import sys
-sys.stdout.write(sys.stdin.read().replace("@DASHBOARD_BLOCK@", sys.argv[1]))
-' "$(dashboard_block)" \
-            | write_file "$site" 644
+        render_site | write_file "$site" 644
 
         # Behind this nginx, the app must trust exactly one proxy hop, or
         # every client is 127.0.0.1 and per-IP limiting means nothing.
@@ -477,6 +563,8 @@ sys.stdout.write(sys.stdin.read().replace("@DASHBOARD_BLOCK@", sys.argv[1]))
         ok "portal.service is running the code just installed"
     fi
 
+    save_answers
+
     step "Done"
     echo "  Site:     https://${SERVER_NAME:-localhost}/"
     echo "  Config:   $ENV_FILE"
@@ -517,6 +605,7 @@ while [ $# -gt 0 ]; do
         --dev)       DEV=1 ;;
         --yes|-y)    ASSUME_YES=1 ;;
         --uninstall) ACTION=uninstall ;;
+        --render-site) ACTION=render ;;
         *)           die "Unknown option: $1  (try --help)" ;;
     esac
     shift
@@ -525,4 +614,5 @@ done
 case "$ACTION" in
     install)   do_install ;;
     uninstall) do_uninstall ;;
+    render)    do_render_site ;;
 esac

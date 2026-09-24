@@ -58,6 +58,12 @@ the resolved ticket anchor. That is an undocumented contract with the
 CLI, which is why `vendor/llm_tools` is a pinned submodule. If ticket
 mode starts mis-labelling graphs, check whether that output changed.
 
+**`install.sh` remembers its answers** in `/etc/portal/install.conf`
+(environment > remembered > default). Do not reintroduce an answer that is
+read only from the environment: a plain re-run would then rebuild a live
+site from defaults. `PORTAL_TOOLS_DIR` installs the tools from an external
+checkout as a *copy*; the bundled `vendor/llm_tools` stays the default.
+
 **Never `git submodule update --recursive`.** That repo has a nested
 submodule over SSH which fails for anyone without the right keys.
 

@@ -34,10 +34,16 @@ venv, a systemd unit, a timer for scheduled refreshes and an nginx site,
 and starts everything. It is safe to re-run — it updates in place.
 
 ```bash
-./install.sh --dry-run     # print every action, take none
-./install.sh --dev         # a local venv only, nothing system-wide
-./install.sh --uninstall   # remove units and site; leaves your data alone
+./install.sh --dry-run       # print every action, take none
+./install.sh --render-site   # print the nginx site it would write
+./install.sh --dev           # a local venv only, nothing system-wide
+./install.sh --uninstall     # remove units and site; leaves your data alone
 ```
+
+Every answer is remembered in `/etc/portal/install.conf`, so a re-run
+rebuilds exactly the same site. An environment variable overrides a
+remembered answer for one run (`PORTAL_SERVER_NAME=...`); edit the file
+to change one for good.
 
 To try it without touching the system:
 
@@ -166,8 +172,32 @@ Upgrading:
 
 ```bash
 git pull && git submodule update --init vendor/llm_tools
-sudo ./install.sh
+sudo ./install.sh --yes      # reuses every remembered answer, then restarts
 ```
+
+`./install.sh --render-site | diff - /etc/nginx/sites-available/portal.conf`
+shows what an upgrade would change in the site before you run it.
+
+### Using your own llm_code_and_review_tools checkout
+
+By default the graphs come from the copy bundled in `vendor/llm_tools`,
+pinned to a version this portal is tested against. If you already keep a
+checkout of [llm_code_and_review_tools][tools] and want one version
+everywhere, install from it instead:
+
+```bash
+sudo PORTAL_TOOLS_DIR=/path/to/llm_code_and_review_tools ./install.sh --yes
+```
+
+It is remembered like every other answer. The tools are installed as a
+**copy**, not an editable link: the service runs unprivileged and cannot
+read most places a checkout lives. So after pulling that checkout, re-run
+`install.sh --yes` to pick the new version up. `PORTAL_TOOLS_DIR=bundled`
+switches back.
+
+The bundled pin exists for a reason: the portal reads the last line of
+`gc`'s output to recover a ticket's anchor change. A checkout at any
+other commit is your call.
 
 ## Security
 
