@@ -83,7 +83,7 @@ a { color: var(--primary); }
 /* === Container === */
 .container { max-width: 960px; margin: 2rem auto; padding: 0 1.5rem; }
 .container-fit { max-width: none; width: min-content; min-width: min(960px, 100%); }
-.container-wide { max-width: 1440px; }
+.container-wide { max-width: 1240px; }
 
 /* === Flash === */
 .flash { padding: 0.7rem 1rem; border-radius: var(--radius); margin-bottom: 1rem; border: 1px solid; }
@@ -179,14 +179,18 @@ a { color: var(--primary); }
 .btn-sm { padding: 0.32rem 0.7rem; font-size: 0.84rem; }
 .btn-danger { background: var(--danger); color: #fff; border-color: var(--danger); }
 .btn-danger:hover { background: #b91c1c; border-color: #b91c1c; }
-.btn-rerun { background: var(--success); color: #fff; border-color: var(--success); }
-.btn-rerun:hover { background: #15803d; border-color: #15803d; }
-.btn-schedule { background: var(--schedule); color: #fff; border-color: var(--schedule); }
-.btn-schedule:hover { background: #7c3aed; border-color: #7c3aed; }
-.btn-edit { background: var(--edit); color: #fff; border-color: var(--edit); }
-.btn-edit:hover { background: #0e7490; border-color: #0e7490; }
-.btn-outline-primary { color: var(--primary); border-color: #9db5f5; }
-.btn-outline-primary:hover { background: var(--primary-soft); border-color: var(--primary); }
+/* Row and panel actions: a tint of their colour rather than a solid
+   fill, so a column of them does not outweigh the data beside it. */
+.btn-soft-primary { background: #eff4ff; color: #1d4ed8; border-color: #c7d7fb; }
+.btn-soft-primary:hover { background: #dfe9ff; border-color: #a9c1f7; }
+.btn-edit { background: #ecfbfe; color: #0e7490; border-color: #b7e8f2; }
+.btn-edit:hover { background: #d9f5fb; border-color: #8fd9e8; }
+.btn-rerun { background: #effbf3; color: #15803d; border-color: #bde8cb; }
+.btn-rerun:hover { background: #dcf5e4; border-color: #93d7aa; }
+.btn-schedule { background: #f5f2ff; color: #6d28d9; border-color: #d9cffb; }
+.btn-schedule:hover { background: #ebe4ff; border-color: #bfaef6; }
+.detail-actions .btn-danger { background: #fef2f2; color: #b91c1c; border-color: #f5c6c6; }
+.detail-actions .btn-danger:hover { background: #fde4e4; border-color: #eea5a5; }
 
 /* === Toasts === */
 .toast-container {
@@ -550,21 +554,20 @@ a { color: var(--primary); }
 .graph-table .col-num { text-align: right; white-space: nowrap; }
 .graph-table th.col-num { text-align: right; }
 .graph-table .num { font-weight: 600; }
-.graph-table .num-open { color: var(--c-open); }
-.graph-table .num-ready { color: var(--c-ready); }
-.graph-table .num-review { color: #b45309; }
-.graph-table .num-blocked { color: var(--danger); }
-.graph-table .num-merged { color: var(--c-merged); }
 .graph-table .num-zero { color: #9ca3af; font-weight: 500; }
-/* The status counts read as one group: a rule before the first, and
-   tighter spacing between them. */
-.graph-table th.col-first-status, .graph-table td.col-first-status { border-left: 1px solid var(--border); }
-.graph-table th.col-num, .graph-table td.col-num { padding-left: 0.6rem; padding-right: 0.6rem; }
-.graph-table th.h-open { color: var(--c-open); }
-.graph-table th.h-ready { color: var(--c-ready); }
-.graph-table th.h-review { color: #b45309; }
-.graph-table th.h-blocked { color: var(--danger); }
-.graph-table th.h-merged { color: var(--c-merged); }
+/* Status: ready / open . merged, in the colours the graphs use. */
+.status-line {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.25rem;
+    font-weight: 600;
+    cursor: help;
+}
+.status-line .stat-ready { color: var(--c-ready); }
+.status-line .stat-open { color: var(--c-open); }
+.status-line .stat-merged { color: var(--c-merged); }
+.status-line .stat-zero { color: #9ca3af; }
+.stat-sep { color: #9ca3af; font-weight: 400; }
 .graph-table td.col-labels { max-width: 14rem; }
 .graph-table td.col-labels .label-chip { margin: 0.1rem 0.15rem 0.1rem 0; }
 .graph-table .sub { display: block; font-size: 0.8rem; color: var(--muted); }

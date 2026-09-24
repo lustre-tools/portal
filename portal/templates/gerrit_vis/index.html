@@ -166,13 +166,6 @@
 </svg>
 {%- endmacro %}
 
-{# A status count: coloured when there is something, grey when zero. #}
-{% macro count(value, cls) -%}
-{%- if value is none -%}<span class="muted">{{ missing }}</span>
-{%- elif value == 0 -%}<span class="num num-zero">0</span>
-{%- else -%}<span class="num {{ cls }}">{{ value }}</span>{%- endif -%}
-{%- endmacro %}
-
 {% macro patch_link(p) -%}
 {%- if p and p.id -%}
 <a href="{{ gerrit_url }}/{{ p.id }}" target="_blank" rel="noopener" title="Open change {{ p.id }} in Gerrit">{{ p.id }}</a>{% if p.ticket %} <span class="muted">{{ p.ticket }}</span>{% endif %}
@@ -188,11 +181,7 @@
             <th class="col-ticket sortable" data-key="ticket" data-type="text">Ticket</th>
             <th class="col-name sortable" data-key="name" data-type="text">Graph</th>
             <th class="col-labels">Labels</th>
-            <th class="col-num col-first-status sortable h-open" data-key="open" data-type="num" title="Open patches">Open</th>
-            <th class="col-num sortable h-ready" data-key="ready" data-type="num" title="Open, verified, and with two +1 reviews from someone other than the author">Ready</th>
-            <th class="col-num sortable h-review" data-key="review" data-type="num" title="Open and still waiting on review or CI">In review</th>
-            <th class="col-num sortable h-blocked" data-key="blocked" data-type="num" title="Open with a failing Verified vote or a -2 review">Blocked</th>
-            <th class="col-num sortable h-merged" data-key="merged" data-type="num" title="Merged, all time">Merged</th>
+            <th class="col-num col-status sortable" data-key="open" data-type="num" title="Ready / open &middot; merged. Sorts by open.">Status</th>
             <th class="col-num col-trend sortable" data-key="m30" data-type="num" title="Merged in the last 30 days, against the 30 days before; the bars are the last 12 months">Merged 30d</th>
             <th class="col-updated sortable" data-key="updated" data-type="num" title="When the graph was last generated">Updated</th>
             <th class="col-open"><span class="visually-hidden">Actions</span></th>
@@ -208,10 +197,6 @@
         data-ticket="{{ e.get('ticket', '') }}"
         data-name="{{ display_name|lower }}"
         data-open="{{ v.open if v.open is not none else '' }}"
-        data-ready="{{ v.ready if v.ready is not none else '' }}"
-        data-review="{{ v.in_review if v.in_review is not none else '' }}"
-        data-blocked="{{ v.blocked if v.blocked is not none else '' }}"
-        data-merged="{{ v.merged if v.merged is not none else '' }}"
         data-m30="{{ v.merged_30d if v.has_summary else '' }}"
         data-updated="{{ v.generated_epoch|int }}">
         <tr class="entry-row">
@@ -241,15 +226,17 @@
                 <a href="{{ url_for('gerrit_vis.index', q=query, label=new_labels) }}" class="label-chip" title="Filter by label {{ l }}">{{ l }}</a>
                 {% else %}<span class="muted">{{ missing }}</span>{% endfor %}
             </td>
-            <td class="col-num col-first-status">{{ count(v.open, 'num-open') }}</td>
-            <td class="col-num">{{ count(v.ready, 'num-ready') }}</td>
-            <td class="col-num">{{ count(v.in_review, 'num-review') }}</td>
-            <td class="col-num">{{ count(v.blocked, 'num-blocked') }}</td>
-            <td class="col-num">{{ count(v.merged, 'num-merged') }}</td>
+            <td class="col-num col-status">
+                {% if v.open is not none %}
+                <span class="status-line" title="{{ v.ready or 0 }} of {{ v.open }} open ready ({{ v.in_review or 0 }} in review, {{ v.blocked or 0 }} blocked) &middot; {{ v.merged or 0 }} merged &middot; {{ v.abandoned or 0 }} abandoned">
+                    <span class="{{ 'stat-ready' if v.ready else 'stat-zero' }}">{{ v.ready or 0 }}</span><span class="stat-sep">/</span><span class="stat-open">{{ v.open }}</span><span class="stat-sep">&middot;</span><span class="stat-merged">{{ v.merged or 0 }}</span>
+                </span>
+                {% else %}<span class="muted">{{ missing }}</span>{% endif %}
+            </td>
             <td class="col-num col-trend">
                 {% if v.has_summary %}
                 <span class="trend-cell">
-                    <span class="num {{ 'num-merged' if v.merged_30d else 'num-zero' }}">{{ v.merged_30d }}</span>
+                    <span class="num {{ '' if v.merged_30d else 'num-zero' }}">{{ v.merged_30d }}</span>
                     <span class="trend trend-{{ v.trend }}" title="{{ v.merged_prev_30d }} in the 30 days before">
                         {%- if v.trend == 'up' %}&#9650;{% elif v.trend == 'down' %}&#9660;{% else %}&ndash;{% endif -%}
                     </span>
@@ -270,7 +257,7 @@
                 {% endif %}
             </td>
             <td class="col-open">
-                <a href="{{ graph_href }}" class="btn btn-sm btn-primary" target="_blank">Open</a>
+                <a href="{{ graph_href }}" class="btn btn-sm btn-soft-primary" target="_blank">Open</a>
                 {% if authenticated %}
                 <button type="button" class="btn btn-sm btn-edit" title="Edit graph parameters and labels" onclick="editGraph('{{ e.change_number }}')">Edit</button>
                 <button type="button" class="btn btn-sm btn-rerun" title="Regenerate with the same options" data-change="{{ e.change_number }}" onclick="rerunGraph('{{ e.change_number }}')">Rerun</button>
@@ -278,7 +265,7 @@
             </td>
         </tr>
         <tr class="entry-detail" id="d-{{ e.change_number }}" hidden>
-            <td colspan="12">
+            <td colspan="8">
                 <div class="detail">
                     {% if v.has_summary %}
                     <div class="detail-body">
@@ -359,7 +346,7 @@
 
                     <div class="detail-actions">
                         <a href="{{ graph_href }}" class="btn btn-primary btn-sm" target="_blank">Open graph</a>
-                        <a href="{{ graph_href }}#stats" class="btn btn-sm btn-outline-primary" target="_blank">Open stats</a>
+                        <a href="{{ graph_href }}#stats" class="btn btn-sm btn-soft-primary" target="_blank">Open stats</a>
                         {% if gerrit_change %}<a href="{{ gerrit_url }}/c/{{ proj }}/+/{{ gerrit_change }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">Gerrit &#8599;</a>{% endif %}
                         {% if e.get('ticket') %}<a href="{{ jira_url }}/browse/{{ e.ticket }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">{{ e.ticket }} &#8599;</a>{% endif %}
                         <span class="spacer"></span>
