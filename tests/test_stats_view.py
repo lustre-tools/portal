@@ -313,7 +313,8 @@ def test_extract_patches_sorts_open_patches_into_lists(tmp_path):
     g = {
         "nodes": [
             _node(3, **READY),
-            _node(1, cr_veto=True, cr_rejected_by="Rev Iewer"),
+            _node(1, cr_veto=True),
+            _node(7, cr_veto=True, cr_rejected=True),
             _node(2, verified_fail=True, verified_votes=[{"name": "Maloo", "value": -1}]),
             _node(4),  # in review: neither list
             _node(5, status="MERGED"),
@@ -324,10 +325,11 @@ def test_extract_patches_sorts_open_patches_into_lists(tmp_path):
     p = extract_patches(write_graph(tmp_path, g))
     assert [x["id"] for x in p["ready"]] == [3]
     assert [(x["id"], x["reason"]) for x in p["blocked"]] == [
-        (1, "−2 by Rev Iewer"),
+        (1, "Review −1"),
         (2, "Maloo −1"),
+        (7, "Review −2"),
     ]
-    assert p["open_ids"] == [1, 2, 3, 4]
+    assert p["open_ids"] == [1, 2, 3, 4, 7]
     assert p["merged_ids"] == [5]
 
 

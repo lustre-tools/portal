@@ -184,8 +184,9 @@ SUBJECT_MAX = 120
 def _block_reason(health, review):
     """A short "why is this blocked" for a review_health() verdict."""
     if health == "bad_veto":
-        who = (review or {}).get("cr_rejected_by") or ""
-        return f"−2 by {who}" if who else "−2"
+        # cr_veto is any negative code review -- in practice nearly always
+        # a -1. Only cr_rejected marks a real -2.
+        return "Review −2" if (review or {}).get("cr_rejected") else "Review −1"
     if health == "bad_other":
         return "Verified −1"
     # bad_<voter>, one of the configured CI accounts.

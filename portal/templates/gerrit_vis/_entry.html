@@ -73,9 +73,9 @@
                 {% endif %}
             </td>
             <td class="col-open">
-                <a href="{{ graph_href }}" class="btn btn-sm btn-soft-primary" target="_blank">Open</a>
+                <a href="{{ graph_href }}" class="btn btn-sm btn-soft-primary" target="_blank" title="Open the graph">Graph</a>
+                <a href="{{ graph_href }}#stats" class="btn btn-sm" target="_blank" title="Open the graph's stats view">Stats</a>
                 {% if authenticated %}
-                <button type="button" class="btn btn-sm btn-edit" title="Edit graph parameters and labels" onclick="editGraph('{{ e.change_number }}')">Edit</button>
                 <button type="button" class="btn btn-sm btn-rerun" title="Regenerate with the same options" data-change="{{ e.change_number }}" onclick="rerunGraph('{{ e.change_number }}')">Rerun</button>
                 {% endif %}
             </td>
@@ -191,15 +191,15 @@
                     {% endif %}
 
                     <div class="detail-actions">
-                        <a href="{{ graph_href }}" class="btn btn-primary btn-sm" target="_blank">Open graph</a>
-                        <a href="{{ graph_href }}#stats" class="btn btn-sm btn-soft-primary" target="_blank">Open stats</a>
+                        <a href="{{ graph_href }}" class="btn btn-soft-primary btn-sm" target="_blank">Open graph</a>
+                        <a href="{{ graph_href }}#stats" class="btn btn-sm" target="_blank">Open stats</a>
                         {% if gerrit_change %}<a href="{{ gerrit_url }}/c/{{ proj }}/+/{{ gerrit_change }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">Gerrit &#8599;</a>{% endif %}
                         {% if e.get('ticket') %}<a href="{{ jira_url }}/browse/{{ e.ticket }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">{{ e.ticket }} &#8599;</a>{% endif %}
                         <span class="spacer"></span>
                         {% if v.get('as_of_ago') %}<span class="muted as-of" title="{{ e.generated_at }}">Generated {{ v.as_of_ago }}</span>{% endif %}
                         {% if authenticated %}
-                        {# The row's own buttons are hidden on a phone; these stand in. #}
-                        <button type="button" class="btn btn-sm btn-edit narrow-only" onclick="editGraph('{{ e.change_number }}')">Edit</button>
+                        <button type="button" class="btn btn-sm btn-edit" title="Edit the graph's options, name and labels" onclick="editGraph('{{ e.change_number }}')">Edit</button>
+                        {# The row's own Rerun is hidden on a phone; this stands in. #}
                         <button type="button" class="btn btn-sm btn-rerun narrow-only" data-change="{{ e.change_number }}" onclick="rerunGraph('{{ e.change_number }}')">Rerun</button>
                         {% if is_admin %}
                         <button type="button" class="btn btn-sm btn-schedule" title="Set the auto-refresh schedule" onclick="openSchedule('{{ e.change_number }}', {{ e.get('refresh_interval_hours', 0) }})">Schedule</button>
