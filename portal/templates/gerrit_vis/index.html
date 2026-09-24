@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Gerrit Visualizer - {{ site_name }}{% endblock %}
-{% block container_class %}container-fit{% endblock %}
+{% block container_class %}container-wide{% endblock %}
 {% block nav_active %}nav-active{% endblock %}
 
 {% block head %}
@@ -14,12 +14,18 @@
 
 {# === Header + New Graph (auth only) === #}
 <div class="accordion" id="new-graph-section">
-    <div class="accordion-header">
-        <h2>Gerrit Visualizer <span class="beta-tag">(beta)</span></h2>
+    <div class="page-head">
+        <div class="page-title">
+            <h1>Gerrit Visualizer <span class="beta-tag">beta</span></h1>
+            <p class="page-sub">
+                {{ entries|length }} graph{{ '' if entries|length == 1 else 's' }}{% if query or label_filters %} matching{% endif %}
+                &middot; patch series, their review state and how they are moving
+            </p>
+        </div>
         <div class="accordion-header-buttons">
-            <button type="button" class="btn btn-primary" onclick="window.location.reload()">Refresh</button>
+            <button type="button" class="btn btn-ghost" onclick="window.location.reload()" title="Reload the list">Reload</button>
             {% if authenticated %}
-            <button type="button" class="btn btn-primary" id="accordion-btn">New Graph</button>
+            <button type="button" class="btn btn-primary" id="accordion-btn">New graph</button>
             {% endif %}
         </div>
     </div>
@@ -88,35 +94,34 @@
     {% endif %}
 </div>
 
-{# === Search === #}
-<form class="search-form" method="GET">
+{# === Search + active label filters === #}
+<form class="search-form" method="GET" role="search">
     <input
-        type="text"
+        type="search"
         name="q"
-        placeholder="Search by change number, name, ticket, label..."
+        placeholder="Search by change, ticket, name or label"
         value="{{ query }}"
         class="search-input"
+        aria-label="Search graphs"
     >
     {# Preserve active label filters when submitting search #}
     {% for l in label_filters %}
     <input type="hidden" name="label" value="{{ l }}">
     {% endfor %}
-    <button type="submit" class="btn btn-primary">Search</button>
+    <button type="submit" class="btn">Search</button>
     {% if query or label_filters %}
-    <a href="{{ url_for('gerrit_vis.index') }}" class="btn">Clear</a>
+    <a href="{{ url_for('gerrit_vis.index') }}" class="btn btn-ghost">Clear</a>
     {% endif %}
 </form>
 
-{# === Active Label Filters === #}
 {% if label_filters %}
 <div class="active-filters">
-    <span class="active-filters-label">Filtering by:</span>
+    <span class="active-filters-label">Label</span>
     {% for l in label_filters %}
-    {# Build URL without this specific label #}
     {%- set remaining = label_filters | reject('equalto', l) | list -%}
     <span class="filter-pill">
         {{ l }}
-        <a href="{{ url_for('gerrit_vis.index', q=query, label=remaining) }}" class="filter-remove" title="Remove this filter">&times;</a>
+        <a href="{{ url_for('gerrit_vis.index', q=query, label=remaining) }}" class="filter-remove" title="Remove this filter" aria-label="Remove label {{ l }}">&times;</a>
     </span>
     {% endfor %}
 </div>
@@ -155,98 +160,227 @@
 {% endif %}
 
 {# === Graph List === #}
+{% macro spark(bars) -%}
+<svg class="spark" viewBox="0 0 48 14" width="48" height="14" aria-hidden="true">
+    {%- for b in bars %}<rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" class="{{ 'bar-empty' if b.empty else 'bar' }}"/>{% endfor -%}
+</svg>
+{%- endmacro %}
+
+{% macro patch_link(p) -%}
+{%- if p and p.id -%}
+<a href="{{ gerrit_url }}/{{ p.id }}" target="_blank" rel="noopener" title="Open change {{ p.id }} in Gerrit">{{ p.id }}</a>{% if p.ticket %} <span class="muted">{{ p.ticket }}</span>{% endif %}
+{%- else -%}{{ missing }}{%- endif -%}
+{%- endmacro %}
+
 {% if entries %}
-<table class="file-table graph-table" id="graph-table">
+<div class="table-card">
+<table class="graph-table" id="graph-table">
     <thead>
         <tr>
-            <th class="col-ticket sortable" data-col="0" data-type="text">Ticket</th>
-            <th class="col-change sortable" data-col="1" data-type="num">Change</th>
-            <th class="col-name sortable" data-col="2" data-type="text">Name</th>
-            <th class="col-labels">Labels</th>
-            <th class="col-status sortable" data-col="4" data-type="num" title="Format: in-flight (ready) / merged">Status</th>
-            <th class="col-date sortable" data-col="5" data-type="text">Generated</th>
-            <th class="col-refresh sortable" data-col="6" data-type="text">Auto-refresh</th>
-            <th class="col-actions">Actions</th>
+            <th class="col-toggle"><span class="visually-hidden">Details</span></th>
+            <th class="col-ticket sortable" data-key="ticket" data-type="text">Ticket</th>
+            <th class="col-name sortable" data-key="name" data-type="text">Graph</th>
+            <th class="col-num sortable" data-key="open" data-type="num" title="Open patches, and how many of them are ready to land">Open</th>
+            <th class="col-num col-trend sortable" data-key="m30" data-type="num" title="Merged in the last 30 days, against the 30 days before; the bars are the last 12 months">Merged 30d</th>
+            <th class="col-num sortable" data-key="ttm" data-type="num" title="Median time from upload to merge">Median merge</th>
+            <th class="col-num sortable" data-key="idle" data-type="num" title="The open patch with no activity for longest">Longest idle</th>
+            <th class="col-updated sortable" data-key="updated" data-type="num" title="When the graph was last generated">Updated</th>
+            <th class="col-open"><span class="visually-hidden">Open</span></th>
         </tr>
     </thead>
-    <tbody id="graph-tbody">
-        {% for e in entries %}
-        <tr>
+    {% for e in entries %}
+    {%- set v = views[e.change_number] -%}
+    {%- set proj = e.get('project') or public_project -%}
+    {%- set gerrit_change = e.change_number if e.change_number.isdigit() else e.get('anchor_change_number') -%}
+    {%- set graph_href = url_for('gerrit_vis.serve_graph', filename=e.file) -%}
+    {%- set display_name = e.get('name') or e.get('subject') or e.change_number -%}
+    <tbody class="entry" id="g-{{ e.change_number }}"
+        data-ticket="{{ e.get('ticket', '') }}"
+        data-name="{{ display_name|lower }}"
+        data-open="{{ v.open if v.open is not none else '' }}"
+        data-m30="{{ v.merged_30d if v.has_summary else '' }}"
+        data-ttm="{{ v.ttm_median_s if v.get('ttm_median_s') is not none else '' }}"
+        data-idle="{{ v.longest_idle.age_s if v.get('longest_idle') else '' }}"
+        data-updated="{{ v.generated_epoch|int }}">
+        <tr class="entry-row">
+            <td class="col-toggle">
+                <button type="button" class="row-toggle" aria-expanded="false" aria-controls="d-{{ e.change_number }}" title="Show details">
+                    <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    <span class="visually-hidden">Details for {{ display_name }}</span>
+                </button>
+            </td>
             <td class="col-ticket">
                 {% if e.get('ticket') %}
-                <a href="{{ jira_url }}/browse/{{ e.ticket }}" target="_blank">{{ e.ticket }}</a>
-                {% else %}-{% endif %}
+                <a href="{{ jira_url }}/browse/{{ e.ticket }}" target="_blank" rel="noopener">{{ e.ticket }}</a>
+                {% else %}<span class="muted">{{ missing }}</span>{% endif %}
             </td>
-            <td class="col-change">
-                {%- set proj = e.get('project') or public_project -%}
-                {%- if e.change_number.isdigit() -%}
-                <a href="{{ gerrit_url }}/c/{{ proj }}/+/{{ e.change_number }}" target="_blank" title="Open in Gerrit ({{ proj }})">{{ e.change_number }}</a>
-                {%- elif e.get('anchor_change_number') -%}
-                <a href="{{ gerrit_url }}/c/{{ proj }}/+/{{ e.anchor_change_number }}" target="_blank" title="Ticket {{ e.change_number }} — anchor change {{ e.anchor_change_number }} ({{ proj }})">{{ e.anchor_change_number }}</a>
-                {%- else -%}
-                {{ e.change_number }}
-                {%- endif -%}
-                {% if proj != public_project %}<span class="internal-badge" title="Internal project: {{ proj }}">internal</span>{% endif %}
+            <td class="col-name">
+                <a class="entry-name" href="{{ graph_href }}" target="_blank" title="{{ e.get('subject', '') }}">{{ display_name }}</a>
+                <div class="entry-meta">
+                    {%- if gerrit_change -%}
+                    <a href="{{ gerrit_url }}/c/{{ proj }}/+/{{ gerrit_change }}" target="_blank" rel="noopener" title="Open the anchor change in Gerrit ({{ proj }})">{{ gerrit_change }}</a>
+                    {%- else -%}<span>{{ e.change_number }}</span>{%- endif -%}
+                    {% if proj != public_project %}<span class="internal-badge" title="Internal project: {{ proj }}">internal</span>{% endif %}
+                    {% for l in e.get('labels', []) %}
+                    {%- set new_labels = (label_filters + [l]) | unique | list -%}
+                    <a href="{{ url_for('gerrit_vis.index', q=query, label=new_labels) }}" class="label-chip" title="Filter by label {{ l }}">{{ l }}</a>
+                    {% endfor %}
+                </div>
             </td>
-            <td class="col-name" title="{{ e.get('subject', '') }}">
-                <a href="{{ url_for('gerrit_vis.serve_graph', filename=e.file) }}" target="_blank">{{ e.get('name', e.get('subject', '')) or '-' }}</a>
+            <td class="col-num">
+                {% if v.open is not none %}
+                <span class="num">{{ v.open }}</span>
+                {% if v.ready %}<span class="sub good" title="{{ v.ready }} ready to land">{{ v.ready }} ready</span>{% endif %}
+                {% else %}<span class="muted">{{ missing }}</span>{% endif %}
             </td>
-            <td class="col-labels">
-                {% for l in e.get('labels', []) %}
-                {%- set new_labels = (label_filters + [l]) | unique | list -%}
-                <a href="{{ url_for('gerrit_vis.index', q=query, label=new_labels) }}" class="label-chip" title="Filter by label">{{ l }}</a>
-                {% else %}<span class="muted">-</span>{% endfor %}
-            </td>
-            <td class="col-status">
-                {% set s = e.get('stats') or {} %}
-                {% if 'inflight' in s %}
-                <span class="status-line" title="{{ s.ready }} of {{ s.inflight }} in-flight ready ({{ s.pending }} pending, {{ s.blocked }} blocked) · Merged: {{ s.merged }} · Abandoned: {{ s.abandoned }}">
-                    <span class="stat-ready">{{ s.ready }}</span><span class="stat-sep">/</span><span class="stat-inflight">{{ s.inflight }}</span><span class="stat-sep">·</span><span class="stat-merged">{{ s.merged }}</span>
+            <td class="col-num col-trend">
+                {% if v.has_summary %}
+                <span class="trend-cell">
+                    <span class="num">{{ v.merged_30d }}</span>
+                    <span class="trend trend-{{ v.trend }}" title="{{ v.merged_prev_30d }} in the 30 days before">
+                        {%- if v.trend == 'up' %}&#9650;{% elif v.trend == 'down' %}&#9660;{% else %}&ndash;{% endif -%}
+                    </span>
+                    {{ spark(v.spark) }}
                 </span>
-                {% else %}<span class="muted">-</span>{% endif %}
+                {% else %}<span class="muted">{{ missing }}</span>{% endif %}
             </td>
-            <td class="col-date">{{ e.generated_at }}</td>
-            <td class="col-refresh">
+            <td class="col-num">{% if v.has_summary %}<span class="num">{{ v.ttm_median }}</span>{% else %}<span class="muted">{{ missing }}</span>{% endif %}</td>
+            <td class="col-num">
+                {% if v.get('longest_idle') %}
+                <span class="num">{{ v.longest_idle.age }}</span>
+                {% if v.longest_idle.id %}<span class="sub">#{{ v.longest_idle.id }}</span>{% endif %}
+                {% else %}<span class="muted">{{ missing }}</span>{% endif %}
+            </td>
+            <td class="col-updated">
+                <span title="{{ e.generated_at }}">{{ v.as_of_ago or e.generated_at }}</span>
                 {% if e.get('next_refresh') %}
-                <span class="refresh-countdown" data-next="{{ e.next_refresh }}"></span>
-                <span class="refresh-interval">
-                    {%- if e.refresh_interval_hours == 6 %}(4x daily)
-                    {%- elif e.refresh_interval_hours == 12 %}(2x daily)
-                    {%- elif e.refresh_interval_hours == 24 %}(daily)
-                    {%- elif e.refresh_interval_hours == 48 %}(every 2d)
-                    {%- elif e.refresh_interval_hours == 168 %}(weekly)
-                    {%- else %}(every {{ e.refresh_interval_hours }}h)
-                    {%- endif %}</span>
-                {% else %}
-                -
+                <span class="sub refresh" title="Auto-refresh
+                    {%- if e.refresh_interval_hours == 6 %} 4x daily
+                    {%- elif e.refresh_interval_hours == 12 %} 2x daily
+                    {%- elif e.refresh_interval_hours == 24 %} daily
+                    {%- elif e.refresh_interval_hours == 48 %} every 2 days
+                    {%- elif e.refresh_interval_hours == 168 %} weekly
+                    {%- else %} every {{ e.refresh_interval_hours }}h{% endif %}">&#8635; <span class="refresh-countdown" data-next="{{ e.next_refresh }}"></span></span>
                 {% endif %}
             </td>
-            <td class="col-actions">
-                <a href="{{ url_for('gerrit_vis.serve_graph', filename=e.file) }}" class="btn btn-sm btn-primary" target="_blank">View</a>
-                {% if authenticated %}
-                <button type="button" class="btn btn-sm btn-edit" title="Edit graph parameters and labels" onclick="editGraph('{{ e.change_number }}')">Edit</button>
-                <button type="button" class="btn btn-sm btn-rerun" title="Regenerate with same options" data-change="{{ e.change_number }}" onclick="rerunGraph('{{ e.change_number }}')">Rerun</button>
-                <form method="POST" action="{{ url_for('gerrit_vis.delete_graph', change_number=e.change_number) }}" style="display:inline;" onsubmit="return confirm('Delete graph for change {{ e.change_number }}?');">{{ csrf_field() }}
-                    {# Preserve current search/label filters across the delete redirect #}
-                    {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
-                    {% for l in label_filters %}<input type="hidden" name="label" value="{{ l }}">{% endfor %}
-                    <button type="submit" class="btn btn-sm btn-danger">Delete</button>
-                </form>
-                {% endif %}
-                {% if is_admin %}
-                <button type="button" class="btn btn-sm btn-schedule" title="Set auto-refresh schedule" onclick="openSchedule('{{ e.change_number }}', {{ e.get('refresh_interval_hours', 0) }})">Schedule</button>
-                {% endif %}
+            <td class="col-open">
+                <a href="{{ graph_href }}" class="btn btn-sm" target="_blank">Open</a>
             </td>
         </tr>
-        {% endfor %}
+        <tr class="entry-detail" id="d-{{ e.change_number }}" hidden>
+            <td colspan="9">
+                <div class="detail">
+                    {% if v.has_summary %}
+                    <div class="detail-body">
+                    <div class="detail-grid">
+                        <section class="stat-card stat-wide">
+                            <h3>Patches</h3>
+                            <p class="stat-big">{{ v.patches if v.patches is not none else missing }}</p>
+                            <div class="compose" role="img" aria-label="{{ v.open }} open, {{ v.merged }} merged, {{ v.abandoned }} abandoned">
+                                <span class="c-open" style="width: {{ '%.2f'|format(v.share.open) }}%"></span><span class="c-merged" style="width: {{ '%.2f'|format(v.share.merged) }}%"></span><span class="c-abandoned" style="width: {{ '%.2f'|format(v.share.abandoned) }}%"></span>
+                            </div>
+                            <p class="legend">
+                                <span><i class="dot c-open"></i>{{ v.open }} open</span>
+                                <span><i class="dot c-merged"></i>{{ v.merged }} merged</span>
+                                <span><i class="dot c-abandoned"></i>{{ v.abandoned }} abandoned</span>
+                            </p>
+                            {% if v.ready is not none %}
+                            <p class="stat-note">Of the open: {{ v.ready }} ready, {{ v.in_review }} in review, {{ v.blocked }} blocked</p>
+                            {% endif %}
+                        </section>
+                        <section class="stat-card">
+                            <h3>Last 30 days</h3>
+                            <p class="stat-big">{{ v.merged_30d }} <small>merged</small></p>
+                            <p class="stat-note">
+                                <span class="trend trend-{{ v.trend }}">{% if v.trend == 'up' %}&#9650;{% elif v.trend == 'down' %}&#9660;{% else %}&ndash;{% endif %}</span>
+                                {{ v.merged_prev_30d }} in the 30 days before
+                            </p>
+                            <p class="stat-note">{{ v.opened_30d }} opened &middot; {{ v.abandoned_30d }} abandoned</p>
+                        </section>
+                        <section class="stat-card">
+                            <h3>Upload to merge</h3>
+                            <p class="stat-big">{{ v.ttm_median }} <small>median</small></p>
+                            <p class="stat-note">p90 {{ v.ttm_p90 }} &middot; {{ v.ttm_count }} merged</p>
+                        </section>
+                        <section class="stat-card">
+                            <h3>First review</h3>
+                            <p class="stat-big">{{ v.ttfr_median }} <small>median</small></p>
+                            <p class="stat-note">p90 {{ v.ttfr_p90 }}</p>
+                        </section>
+                        <section class="stat-card">
+                            <h3>Patchsets to merge</h3>
+                            <p class="stat-big">{{ v.ps_median }} <small>median</small></p>
+                            <p class="stat-note">most {{ v.ps_max }}</p>
+                        </section>
+                        <section class="stat-card">
+                            <h3>Oldest open</h3>
+                            <p class="stat-big">{{ v.oldest_open.age if v.oldest_open else missing }}</p>
+                            <p class="stat-note">{{ patch_link(v.oldest_open) }}</p>
+                        </section>
+                        <section class="stat-card">
+                            <h3>Longest idle</h3>
+                            <p class="stat-big">{{ v.longest_idle.age if v.longest_idle else missing }}</p>
+                            <p class="stat-note">{{ patch_link(v.longest_idle) }}</p>
+                        </section>
+                    </div>
+                        <section class="stat-card stat-chart">
+                            <h3>Merged per month</h3>
+                            <svg class="chart" viewBox="0 -12 240 90" role="img" aria-label="Merged per month over the last 12 months">
+                                <line x1="0" y1="64.5" x2="240" y2="64.5" class="axis"/>
+                                {% for b in v.chart %}
+                                {%- set m = v.months[loop.index0] -%}
+                                <g>
+                                    <title>{{ m.label }}: {{ b.value }} merged</title>
+                                    <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" class="{{ 'bar-empty' if b.empty else 'bar' }}"/>
+                                    {% if b.value %}<text x="{{ b.x + b.w / 2 }}" y="{{ b.y - 3 }}" class="bar-value">{{ b.value }}</text>{% endif %}
+                                    <text x="{{ b.x + b.w / 2 }}" y="76" class="bar-label">{{ m.short }}</text>
+                                </g>
+                                {% endfor %}
+                            </svg>
+                            <p class="stat-note">{{ v.months[0].label if v.months else '' }} &ndash; {{ v.months[-1].label if v.months else '' }}</p>
+                        </section>
+                    </div>
+                    {% else %}
+                    <p class="detail-empty">
+                        {% if v.open is not none %}{{ v.open }} open &middot; {{ v.merged }} merged &middot; {{ v.abandoned }} abandoned. {% endif %}
+                        Trend and timing figures appear once this graph is regenerated.
+                    </p>
+                    {% endif %}
+
+                    <div class="detail-actions">
+                        <a href="{{ graph_href }}" class="btn btn-primary btn-sm" target="_blank">Open graph</a>
+                        <a href="{{ graph_href }}#stats" class="btn btn-sm" target="_blank">Open stats</a>
+                        {% if gerrit_change %}<a href="{{ gerrit_url }}/c/{{ proj }}/+/{{ gerrit_change }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">Gerrit &#8599;</a>{% endif %}
+                        {% if e.get('ticket') %}<a href="{{ jira_url }}/browse/{{ e.ticket }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener">{{ e.ticket }} &#8599;</a>{% endif %}
+                        <span class="spacer"></span>
+                        {% if v.get('as_of_ago') %}<span class="muted as-of" title="{{ e.generated_at }}">Generated {{ v.as_of_ago }}</span>{% endif %}
+                        {% if authenticated %}
+                        <button type="button" class="btn btn-sm btn-edit" title="Edit graph parameters and labels" onclick="editGraph('{{ e.change_number }}')">Edit</button>
+                        <button type="button" class="btn btn-sm btn-rerun" title="Regenerate with the same options" data-change="{{ e.change_number }}" onclick="rerunGraph('{{ e.change_number }}')">Rerun</button>
+                        {% if is_admin %}
+                        <button type="button" class="btn btn-sm btn-schedule" title="Set the auto-refresh schedule" onclick="openSchedule('{{ e.change_number }}', {{ e.get('refresh_interval_hours', 0) }})">Schedule</button>
+                        {% endif %}
+                        <form method="POST" action="{{ url_for('gerrit_vis.delete_graph', change_number=e.change_number) }}" class="inline-form" onsubmit="return confirm('Delete graph for change {{ e.change_number }}?');">{{ csrf_field() }}
+                            {# Preserve current search/label filters across the delete redirect #}
+                            {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
+                            {% for l in label_filters %}<input type="hidden" name="label" value="{{ l }}">{% endfor %}
+                            <button type="submit" class="btn btn-sm btn-danger-quiet btn-delete">Delete</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+            </td>
+        </tr>
     </tbody>
+    {% endfor %}
 </table>
+</div>
 {% else %}
 <p class="empty-state">
     {% if query or label_filters %}
         No graphs match the current filters.
     {% elif authenticated %}
-        No graphs generated yet. Click "New Graph" above to create one.
+        No graphs generated yet. Click "New graph" above to create one.
     {% else %}
         No graphs available yet.
     {% endif %}
@@ -278,41 +412,75 @@ function openSchedule(changeNumber, currentInterval) {
 {% endif %}
 
 <script>
-// Table sorting
+// Expand a row to show its stats. A click anywhere on the row toggles
+// it, except on the links and buttons it contains.
+(function() {
+    var table = document.getElementById("graph-table");
+    if (!table) return;
+
+    function toggle(tbody, open) {
+        var btn = tbody.querySelector(".row-toggle");
+        var detail = tbody.querySelector(".entry-detail");
+        if (open === undefined) open = detail.hidden;
+        detail.hidden = !open;
+        tbody.classList.toggle("is-open", open);
+        btn.setAttribute("aria-expanded", open ? "true" : "false");
+        btn.title = open ? "Hide details" : "Show details";
+    }
+
+    table.addEventListener("click", function(ev) {
+        var row = ev.target.closest(".entry-row");
+        if (!row) return;
+        var toggleBtn = ev.target.closest(".row-toggle");
+        if (!toggleBtn && ev.target.closest("a, button, form, input")) return;
+        // Leave a text selection alone rather than collapsing under it.
+        if (!toggleBtn && window.getSelection && String(window.getSelection())) return;
+        toggle(row.parentNode);
+    });
+
+    // A link to #g-<id> opens that graph's details.
+    if (location.hash.indexOf("#g-") === 0) {
+        var target = document.getElementById(location.hash.slice(1));
+        if (target && target.classList.contains("entry")) toggle(target, true);
+    }
+})();
+
+// Sorting. Each graph is its own <tbody>, so a row and its details move
+// together. Rows without a value for the column always sort last.
 (function() {
     var table = document.getElementById("graph-table");
     if (!table) return;
     var headers = table.querySelectorAll("th.sortable");
-    var currentCol = -1;
+    var current = null;
     var ascending = true;
 
     headers.forEach(function(th) {
-        th.addEventListener("click", function() {
-            var col = parseInt(th.dataset.col);
-            var type = th.dataset.type;
-            if (currentCol === col) {
-                ascending = !ascending;
-            } else {
-                currentCol = col;
-                ascending = true;
-            }
-            headers.forEach(function(h) { h.classList.remove("sort-asc", "sort-desc"); });
+        th.setAttribute("tabindex", "0");
+        th.setAttribute("aria-sort", "none");
+        function sortBy() {
+            var key = th.dataset.key;
+            var numeric = th.dataset.type === "num";
+            ascending = current === key ? !ascending : !numeric;
+            current = key;
+            headers.forEach(function(h) {
+                h.classList.remove("sort-asc", "sort-desc");
+                h.setAttribute("aria-sort", "none");
+            });
             th.classList.add(ascending ? "sort-asc" : "sort-desc");
+            th.setAttribute("aria-sort", ascending ? "ascending" : "descending");
 
-            var tbody = table.querySelector("tbody");
-            var rows = Array.from(tbody.querySelectorAll("tr"));
-            rows.sort(function(a, b) {
-                var aText = a.cells[col].textContent.trim();
-                var bText = b.cells[col].textContent.trim();
-                var cmp;
-                if (type === "num") {
-                    cmp = (parseInt(aText) || 0) - (parseInt(bText) || 0);
-                } else {
-                    cmp = aText.localeCompare(bText);
-                }
+            var bodies = Array.from(table.querySelectorAll("tbody.entry"));
+            bodies.sort(function(a, b) {
+                var av = a.dataset[key] || "", bv = b.dataset[key] || "";
+                if (av === "" || bv === "") return (av === "") - (bv === "");
+                var cmp = numeric ? parseFloat(av) - parseFloat(bv) : av.localeCompare(bv, undefined, {numeric: true});
                 return ascending ? cmp : -cmp;
             });
-            rows.forEach(function(row) { tbody.appendChild(row); });
+            bodies.forEach(function(b) { table.appendChild(b); });
+        }
+        th.addEventListener("click", sortBy);
+        th.addEventListener("keydown", function(ev) {
+            if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); sortBy(); }
         });
     });
 })();
@@ -326,7 +494,7 @@ function openSchedule(changeNumber, currentInterval) {
             var diffMs = next - now;
             if (diffMs <= 0) {
                 el.textContent = "due";
-                el.className = "refresh-countdown refresh-due";
+                el.classList.add("refresh-due");
             } else {
                 var hours = Math.floor(diffMs / 3600000);
                 var mins = Math.floor((diffMs % 3600000) / 60000);

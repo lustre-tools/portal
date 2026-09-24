@@ -193,23 +193,21 @@ def test_metadata_endpoint_404_on_missing(client, login, graph_dir):
     assert resp.status_code == 404
 
 
+def _listed(body):
+    """The graphs a rendered list shows, in order. Each is one <tbody>."""
+    import re
+
+    return re.findall(r'<tbody class="entry" id="g-([^"]+)"', body)
+
+
 def test_label_filter_url_param(client, graph_dir):
     add_entry(graph_dir, "1", labels=["alpha"])
     add_entry(graph_dir, "2", labels=["beta"])
     resp = client.get("/gerrit_vis/?label=alpha")
     assert resp.status_code == 200
     body = resp.data.decode()
-    # Should include change 1 but not 2
-    assert "1234567890"  # placeholder check
-    # Ensure the filter pill is shown
     assert "filter-pill" in body
-    # Confirm rendered table only has one matching row
-    import re
-
-    tbody_match = re.search(r"<tbody[^>]*>(.*?)</tbody>", body, re.DOTALL)
-    assert tbody_match
-    rows = re.findall(r"<tr\b", tbody_match.group(1))
-    assert len(rows) == 1
+    assert _listed(body) == ["1"]
 
 
 def test_delete_preserves_filter_when_results_remain(client, login, graph_dir):
@@ -255,12 +253,7 @@ def test_label_filter_combined(client, graph_dir):
     add_entry(graph_dir, "1", labels=["alpha"])
     add_entry(graph_dir, "2", labels=["alpha", "beta"])
     resp = client.get("/gerrit_vis/?label=alpha&label=beta")
-    body = resp.data.decode()
-    import re
-
-    tbody = re.search(r"<tbody[^>]*>(.*?)</tbody>", body, re.DOTALL).group(1)
-    rows = re.findall(r"<tr\b", tbody)
-    assert len(rows) == 1
+    assert _listed(resp.data.decode()) == ["2"]
 
 
 def test_security_headers_present(client):

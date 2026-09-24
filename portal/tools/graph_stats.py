@@ -44,11 +44,15 @@ def review_health(node, ci_voters=DEFAULT_CI_VOTERS):
     return "pending"
 
 
-_GRAPH_DATA_RE = re.compile(r"const\s+G\s*=\s*(\{.*?\});", re.DOTALL)
+_GRAPH_DATA_MARKER = re.compile(r"const\s+G\s*=\s*")
 
 
 def _load_graph_data(html_path):
     """Parse the embedded `const G = {...}` payload from a graph HTML.
+
+    The object is decoded with ``raw_decode`` from where it starts, so a
+    ``};`` inside a string value (a commit subject, say) cannot cut it
+    short the way a non-greedy regex would.
 
     Returns the decoded dict, or None if the file can't be read/parsed.
     """
@@ -57,13 +61,14 @@ def _load_graph_data(html_path):
             content = f.read()
     except OSError:
         return None
-    m = _GRAPH_DATA_RE.search(content)
+    m = _GRAPH_DATA_MARKER.search(content)
     if not m:
         return None
     try:
-        return json.loads(m.group(1))
+        data, _ = json.JSONDecoder().raw_decode(content, m.end())
     except (json.JSONDecodeError, ValueError):
         return None
+    return data if isinstance(data, dict) else None
 
 
 def classify_graph_project(html_path, public_project, anchor_id=None):
@@ -133,3 +138,40 @@ def extract_stats_from_html(html_path, ci_voters=DEFAULT_CI_VOTERS):
         "merged": merged,
         "abandoned": abandoned,
     }
+
+
+#: The parts of ``G.stats.summary`` the portal shows. ``last_30d`` and
+#: ``prev_30d`` are left out on purpose: they are fixed at generation
+#: time, and the list recounts them from ``recent_events`` at render
+#: time instead, so a graph that has not been refreshed for a week does
+#: not claim last week's numbers are this month's.
+SUMMARY_KEYS = (
+    "as_of",
+    "patches",
+    "open",
+    "merged",
+    "abandoned",
+    "recent_events",
+    "time_to_merge",
+    "time_to_first_review",
+    "patchsets_to_merge",
+    "oldest_open",
+    "longest_idle",
+    "merged_by_month",
+)
+
+
+def extract_summary(html_path):
+    """The graph's own summary (``G.stats.summary``), trimmed to what the
+    list shows.
+
+    Graphs from an engine that predates the summary return None, as do
+    unreadable files; callers treat both as "no stats yet".
+    """
+    g = _load_graph_data(html_path)
+    if g is None:
+        return None
+    summary = (g.get("stats") or {}).get("summary")
+    if not isinstance(summary, dict):
+        return None
+    return {k: summary.get(k) for k in SUMMARY_KEYS if k in summary}

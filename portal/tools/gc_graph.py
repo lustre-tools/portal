@@ -404,6 +404,7 @@ def _do_run(params, socketio, room, kind, positional, file_id):
                 if isinstance(v, (str, bool, int, float)):
                     stored_params[k] = v
             stats = extract_stats_from_html(output_path, current_app.config["CI_VOTERS"])
+            summary = extract_summary(output_path)
             add_entry(
                 output_dir,
                 file_id,
@@ -413,6 +414,7 @@ def _do_run(params, socketio, room, kind, positional, file_id):
                 params=stored_params,
                 labels=labels,
                 stats=stats,
+                summary=summary,
                 project=project,
                 anchor_change_number=anchor_change,
                 tz=current_app.config["TIMEZONE"],
@@ -474,6 +476,7 @@ def _deployment_paths():
 from portal.tools.graph_stats import (  # noqa: E402
     classify_graph_project,
     extract_stats_from_html,
+    extract_summary,
 )
 
 _LABEL_CHAR_RE = re.compile(r"[^a-z0-9._-]+")

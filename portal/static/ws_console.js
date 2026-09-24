@@ -58,7 +58,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     accordionOpen = willOpen;
     accordionBody.style.display = accordionOpen ? "block" : "none";
-    accordionBtn.textContent = accordionOpen ? "Close" : "New Graph";
+    accordionBtn.textContent = accordionOpen ? "Close" : "New graph";
   });
 
   // === Labels autocomplete ===

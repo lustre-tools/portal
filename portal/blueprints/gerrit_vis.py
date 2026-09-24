@@ -1,3 +1,4 @@
+import time
 from datetime import datetime
 
 from flask import (
@@ -29,6 +30,7 @@ from portal.graph_store import (
     list_entries,
     update_schedule,
 )
+from portal.stats_view import MISSING, entry_view
 from portal.tools.gc_graph import _normalize_labels
 from portal.tools.registry import get_tool, list_tools
 
@@ -107,10 +109,15 @@ def index():
                 "labels": e.get("labels", []),
             }
 
+    now = time.time()
+    views = {e["change_number"]: entry_view(e, now) for e in entries}
+
     return render_template(
         "gerrit_vis/index.html",
         tools=tools,
         entries=entries,
+        views=views,
+        missing=MISSING,
         query=query,
         label_filters=label_filters,
         rerun_data=rerun_data,

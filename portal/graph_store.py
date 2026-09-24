@@ -21,6 +21,9 @@ from zoneinfo import ZoneInfo
 from portal.fsutil import owner_to_keep
 
 DEFAULT_TZ = ZoneInfo("UTC")
+
+# add_entry(summary=...) default: leave whatever summary is stored alone.
+_KEEP = object()
 DEFAULT_ANCHOR = time(8, 0)
 
 # A graph is keyed either by a numeric Gerrit change number (e.g. "62796")
@@ -117,7 +120,17 @@ def add_entry(
     anchor_change_number=None,
     touch_generated_at=True,
     tz=DEFAULT_TZ,
+    summary=_KEEP,
 ):
+    """Insert or replace the entry for ``change_number``.
+
+    ``summary`` is the graph's stats summary. It lives beside ``stats``,
+    not inside it, because the search matches against ``stats`` and a
+    summary is full of numbers that would match almost any query. Pass
+    it after a regeneration -- ``None`` then means the new graph has
+    none, and any old one is dropped. Leave it out for a metadata-only
+    edit, which keeps the stored one.
+    """
     key = str(change_number)
     entry = {}
 
@@ -161,6 +174,11 @@ def add_entry(
             entry["stats"] = stats
         elif existing and "stats" in existing:
             entry["stats"] = existing["stats"]
+        if summary is _KEEP:
+            if existing and "summary" in existing:
+                entry["summary"] = existing["summary"]
+        elif summary:
+            entry["summary"] = summary
         if labels is not None:
             entry["labels"] = labels
         elif existing and "labels" in existing:
@@ -274,6 +292,27 @@ def transfer_schedule(output_dir, from_change, to_change):
         return entries
 
     _update(output_dir, mutate)
+
+
+def set_derived(output_dir, change_number, stats=None, summary=None):
+    """Store stats and summary re-read from an existing graph file.
+
+    Touches nothing else -- not the generation time, not the schedule --
+    so a backfill is invisible apart from the numbers it adds.
+    """
+    key = str(change_number)
+
+    def mutate(entries):
+        for e in entries:
+            if e["change_number"] == key:
+                if stats:
+                    e["stats"] = stats
+                if summary:
+                    e["summary"] = summary
+                return entries
+        return None
+
+    return _update(output_dir, mutate)
 
 
 def get_entry(output_dir, change_number):

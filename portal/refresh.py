@@ -19,6 +19,7 @@ would silently turn an internal graph into a failed refresh.
 
 import argparse
 import logging
+import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
@@ -27,7 +28,9 @@ from portal.graph_store import (
     _update,
     get_due_entries,
     next_refresh_time,
+    set_derived,
 )
+from portal.tools.graph_stats import extract_stats_from_html, extract_summary
 
 logger = logging.getLogger("portal.refresh")
 
@@ -102,6 +105,26 @@ def _bump_schedules(output_dir, keys, tz, anchor):
     _update(output_dir, mutate)
 
 
+def _backfill(output_dir, ci_voters):
+    """Fill in stats for graphs generated before the index stored them."""
+    entries = _load_index(output_dir)
+    with_summary = 0
+    for e in entries:
+        path = os.path.join(output_dir, e.get("file") or f"{e['change_number']}.html")
+        stats = extract_stats_from_html(path, ci_voters)
+        summary = extract_summary(path)
+        if summary:
+            with_summary += 1
+        set_derived(output_dir, e["change_number"], stats=stats, summary=summary)
+    logger.info(
+        "backfilled %d graph(s); %d carry a summary (the rest predate it "
+        "and get one on their next regeneration)",
+        len(entries),
+        with_summary,
+    )
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="portal-refresh",
@@ -111,6 +134,12 @@ def main(argv=None):
         "--dry-run",
         action="store_true",
         help="list what is due and exit without regenerating anything",
+    )
+    parser.add_argument(
+        "--backfill",
+        action="store_true",
+        help="re-read stats from the graph files already on disk into the "
+        "index, without regenerating anything (after an upgrade)",
     )
     parser.add_argument(
         "--all",
@@ -127,6 +156,9 @@ def main(argv=None):
     output_dir = app.config["GRAPH_OUTPUT_DIR"]
     tz = app.config["TIMEZONE"]
     anchor = app.config["REFRESH_ANCHOR"]
+
+    if args.backfill:
+        return _backfill(output_dir, app.config["CI_VOTERS"])
 
     if args.all:
         due = [e for e in _load_index(output_dir) if e.get("refresh_interval_hours")]
