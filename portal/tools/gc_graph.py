@@ -405,6 +405,7 @@ def _do_run(params, socketio, room, kind, positional, file_id):
                     stored_params[k] = v
             stats = extract_stats_from_html(output_path, current_app.config["CI_VOTERS"])
             summary = extract_summary(output_path)
+            patches = extract_patches(output_path, current_app.config["CI_VOTERS"])
             add_entry(
                 output_dir,
                 file_id,
@@ -415,6 +416,7 @@ def _do_run(params, socketio, room, kind, positional, file_id):
                 labels=labels,
                 stats=stats,
                 summary=summary,
+                patches=patches,
                 project=project,
                 anchor_change_number=anchor_change,
                 tz=current_app.config["TIMEZONE"],
@@ -475,6 +477,7 @@ def _deployment_paths():
 
 from portal.tools.graph_stats import (  # noqa: E402
     classify_graph_project,
+    extract_patches,
     extract_stats_from_html,
     extract_summary,
 )

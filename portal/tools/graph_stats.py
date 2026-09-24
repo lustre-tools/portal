@@ -175,3 +175,67 @@ def extract_summary(html_path):
     if not isinstance(summary, dict):
         return None
     return {k: summary.get(k) for k in SUMMARY_KEYS if k in summary}
+
+
+#: Longest subject kept per patch; the list shows one line of it.
+SUBJECT_MAX = 120
+
+
+def _block_reason(health, review):
+    """A short "why is this blocked" for a review_health() verdict."""
+    if health == "bad_veto":
+        who = (review or {}).get("cr_rejected_by") or ""
+        return f"−2 by {who}" if who else "−2"
+    if health == "bad_other":
+        return "Verified −1"
+    # bad_<voter>, one of the configured CI accounts.
+    return f"{health[4:].capitalize()} −1"
+
+
+def extract_patches(html_path, ci_voters=DEFAULT_CI_VOTERS):
+    """Which patches are ready and which are blocked, plus the ids of
+    every open and merged patch.
+
+    The lists feed the expanded row ("what can land now?"); the id sets
+    let a filtered view add graphs up without counting a patch twice
+    when it belongs to two overlapping series.
+
+    Returns None if the graph can't be read.
+    """
+    g = _load_graph_data(html_path)
+    if g is None:
+        return None
+
+    ready, blocked, open_ids, merged_ids = [], [], [], []
+    for n in g.get("nodes", []) or []:
+        change = n.get("id")
+        if not isinstance(change, int):
+            continue
+        status = n.get("status")
+        if status == "MERGED":
+            merged_ids.append(change)
+            continue
+        if status != "NEW":
+            continue
+        open_ids.append(change)
+        health = review_health(n, ci_voters)
+        subject = (n.get("subject") or "")[:SUBJECT_MAX]
+        if health == "good":
+            ready.append(
+                {"id": change, "subject": subject, "last_activity": n.get("last_activity")}
+            )
+        elif health.startswith("bad_"):
+            blocked.append(
+                {
+                    "id": change,
+                    "subject": subject,
+                    "reason": _block_reason(health, n.get("review")),
+                }
+            )
+
+    return {
+        "ready": sorted(ready, key=lambda p: p["id"]),
+        "blocked": sorted(blocked, key=lambda p: p["id"]),
+        "open_ids": sorted(open_ids),
+        "merged_ids": sorted(merged_ids),
+    }

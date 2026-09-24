@@ -463,7 +463,6 @@ document.addEventListener("DOMContentLoaded", function () {
             showResult(r.graphUrl);
           }
         }
-        showToast(true, changeNum, r.graphUrl);
       } else {
         r.status = "failed";
         r.buffer += "\n--- Failed: " + (data.error || "unknown error") + " ---\n";
@@ -480,12 +479,22 @@ document.addEventListener("DOMContentLoaded", function () {
       editingChangeNum = null;
       updateRunIndicator();
 
-      // Refresh the list to show the new/updated entry, but only if the user
-      // is actively watching this run and nothing else is still running (so we
-      // don't yank the page out from under other background runs).
-      if (data.ok && focusedRunId === runId &&
-          modal.style.display !== "none" && activeRunCount() === 0) {
-        setTimeout(function () { window.location.reload(); }, 1500);
+      if (data.ok) {
+        // The entry's key as the server stored it (a ticket is uppercased).
+        var shown = data.change_number || changeNum;
+        var inPlace = window.refreshGraphRow
+          ? window.refreshGraphRow(shown, r.oldChange)
+          : Promise.resolve(false);
+        inPlace.then(function (updated) {
+          showToast(true, shown, r.graphUrl, null, updated);
+          // Could not update the row in place: reload instead, but only if
+          // the user is watching this run and nothing else is still running
+          // (so we don't yank the page out from under other background runs).
+          if (!updated && focusedRunId === runId &&
+              modal.style.display !== "none" && activeRunCount() === 0) {
+            setTimeout(function () { window.location.reload(); }, 1500);
+          }
+        });
       }
     });
 
@@ -517,7 +526,8 @@ document.addEventListener("DOMContentLoaded", function () {
     return c;
   }
 
-  function showToast(ok, changeNum, graphUrl, error) {
+  // inPlace: the list row was already updated, so no "Refresh list" link.
+  function showToast(ok, changeNum, graphUrl, error, inPlace) {
     var c = getToastContainer();
     var toast = document.createElement("div");
     toast.className = "toast " + (ok ? "toast-ok" : "toast-error");
@@ -535,6 +545,8 @@ document.addEventListener("DOMContentLoaded", function () {
       link.textContent = "View";
       link.className = "toast-link";
       toast.appendChild(link);
+    }
+    if (ok && graphUrl && !inPlace) {
       var refresh = document.createElement("a");
       refresh.href = "#";
       refresh.textContent = "Refresh list";

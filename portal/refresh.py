@@ -30,7 +30,7 @@ from portal.graph_store import (
     next_refresh_time,
     set_derived,
 )
-from portal.tools.graph_stats import extract_stats_from_html, extract_summary
+from portal.tools.graph_stats import extract_patches, extract_stats_from_html, extract_summary
 
 logger = logging.getLogger("portal.refresh")
 
@@ -113,9 +113,10 @@ def _backfill(output_dir, ci_voters):
         path = os.path.join(output_dir, e.get("file") or f"{e['change_number']}.html")
         stats = extract_stats_from_html(path, ci_voters)
         summary = extract_summary(path)
+        patches = extract_patches(path, ci_voters)
         if summary:
             with_summary += 1
-        set_derived(output_dir, e["change_number"], stats=stats, summary=summary)
+        set_derived(output_dir, e["change_number"], stats=stats, summary=summary, patches=patches)
     logger.info(
         "backfilled %d graph(s); %d carry a summary (the rest predate it "
         "and get one on their next regeneration)",

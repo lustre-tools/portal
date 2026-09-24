@@ -150,6 +150,112 @@ def _stale_patch(item, key, now):
     }
 
 
+#: How many ready / blocked patches the expanded row lists before
+#: pointing at the graph for the rest.
+LIST_LIMIT = 8
+
+
+def _patch_lists(entry, now):
+    """The ready and blocked lists for the expanded row, trimmed."""
+    p = entry.get("patches")
+    if not isinstance(p, dict):
+        return {"has_lists": False}
+
+    def clean(items):
+        out = []
+        for item in items or ():
+            if not isinstance(item, dict) or not str(item.get("id")).isdigit():
+                continue
+            out.append(item)
+        return out
+
+    ready = clean(p.get("ready"))
+    blocked = clean(p.get("blocked"))
+    return {
+        "has_lists": True,
+        "ready_list": [
+            {
+                "id": int(x["id"]),
+                "subject": x.get("subject") or "",
+                "idle": fmt_duration(now - x["last_activity"])
+                if _num(x.get("last_activity")) is not None
+                else None,
+            }
+            for x in ready[:LIST_LIMIT]
+        ],
+        "ready_more": max(0, len(ready) - LIST_LIMIT),
+        "blocked_list": [
+            {"id": int(x["id"]), "subject": x.get("subject") or "", "reason": x.get("reason") or ""}
+            for x in blocked[:LIST_LIMIT]
+        ],
+        "blocked_more": max(0, len(blocked) - LIST_LIMIT),
+    }
+
+
+def group_totals(entries, now):
+    """Figures for a whole filtered list -- every graph with a label, say.
+
+    Series overlap: a patch can sit in two graphs. Where the graphs
+    carry patch ids, each patch is counted once; merges are matched by
+    their timestamp, which is the same in every graph that has them.
+    Graphs from before the ids were stored fall back to their plain
+    counts, and ``approx`` says so.
+    """
+    ready, blocked, open_, merged = set(), set(), set(), set()
+    fallback = {"ready": 0, "blocked": 0, "open": 0, "merged": 0, "in_review": 0}
+    approx = False
+    merged_events = set()
+    any_summary = False
+
+    def ids(items):
+        return {
+            int(x["id"] if isinstance(x, dict) else x)
+            for x in items or ()
+            if str(x["id"] if isinstance(x, dict) else x).isdigit()
+        }
+
+    for e in entries:
+        p = e.get("patches")
+        if isinstance(p, dict):
+            ready |= ids(p.get("ready"))
+            blocked |= ids(p.get("blocked"))
+            open_ |= ids(p.get("open_ids"))
+            merged |= ids(p.get("merged_ids"))
+        else:
+            st = e.get("stats") or {}
+            if st:
+                approx = True
+                fallback["ready"] += st.get("ready") or 0
+                fallback["blocked"] += st.get("blocked") or 0
+                fallback["open"] += st.get("inflight") or 0
+                fallback["merged"] += st.get("merged") or 0
+                fallback["in_review"] += st.get("pending") or 0
+        s = e.get("summary")
+        if isinstance(s, dict):
+            any_summary = True
+            merged_events.update(
+                t
+                for t in ((s.get("recent_events") or {}).get("merged") or ())
+                if _num(t) is not None
+            )
+
+    cur = _count_window(merged_events, now, 0, 30)
+    prev = _count_window(merged_events, now, 30, 60)
+    return {
+        "graphs": len(entries),
+        "ready": len(ready) + fallback["ready"],
+        "blocked": len(blocked) + fallback["blocked"],
+        "open": len(open_) + fallback["open"],
+        "merged": len(merged) + fallback["merged"],
+        "in_review": len(open_ - ready - blocked) + fallback["in_review"],
+        "has_trend": any_summary,
+        "merged_30d": cur,
+        "merged_prev_30d": prev,
+        "trend": "up" if cur > prev else "down" if cur < prev else "flat",
+        "approx": approx,
+    }
+
+
 def entry_view(entry, now):
     """Everything the list needs to show one graph, formatted.
 
@@ -164,6 +270,7 @@ def entry_view(entry, now):
         "ready": _num(stats.get("ready")),
         "in_review": _num(stats.get("pending")),
         "blocked": _num(stats.get("blocked")),
+        **_patch_lists(entry, now),
     }
     if not view["has_summary"]:
         view.update(

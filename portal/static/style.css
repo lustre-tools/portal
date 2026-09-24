@@ -483,6 +483,31 @@ a { color: var(--primary); }
     line-height: 1.5;
 }
 
+/* === Totals for a filtered view === */
+.group-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.5rem 2rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    padding: 0.85rem 1.25rem;
+    margin-bottom: 1rem;
+}
+.gs-item { display: flex; flex-direction: column; }
+.gs-num { font-size: 1.35rem; font-weight: 650; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.gs-num .stat-sep { margin: 0 0.15rem; }
+.gs-num .trend { font-size: 0.75rem; vertical-align: 0.2em; }
+.gs-label { font-size: 0.82rem; color: var(--muted); }
+.gs-lead { padding-right: 2rem; border-right: 1px solid var(--border); }
+.gs-note { flex: 1 1 14rem; text-align: right; font-size: 0.8rem; color: var(--faint); align-self: center; }
+.group-summary .stat-ready { color: var(--c-ready); }
+.group-summary .stat-open { color: var(--c-open); }
+.group-summary .stat-merged { color: var(--c-merged); }
+.group-summary .stat-zero { color: #9ca3af; }
+
 /* === Graph list === */
 .table-card {
     background: var(--card-bg);
@@ -515,6 +540,9 @@ a { color: var(--primary); }
 .entry-row { cursor: pointer; }
 .entry-row:hover td { background: var(--hover); }
 .entry.is-open .entry-row td { background: var(--hover); }
+/* A row just regenerated in place flashes once, so the eye finds it. */
+@keyframes row-updated { from { background: #fef9c3; } to { background: transparent; } }
+.entry.just-updated .entry-row td { animation: row-updated 2.5s ease-out; }
 
 .graph-table .col-toggle { width: 2rem; padding-right: 0; }
 .row-toggle {
@@ -651,6 +679,36 @@ a { color: var(--primary); }
 .chart .bar-value { font-size: 10px; fill: var(--muted); text-anchor: middle; font-variant-numeric: tabular-nums; }
 .chart .bar-label { font-size: 10px; fill: var(--muted); text-anchor: middle; }
 .detail-empty { color: var(--muted); }
+.patch-lists {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+}
+.patch-list { border: 1px solid var(--border); border-radius: var(--radius); padding: 0.7rem 0.85rem; min-width: 0; }
+.patch-list h3 {
+    font-size: 0.74rem; font-weight: 650; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.35rem;
+}
+.patch-list .count { font-weight: 650; margin-left: 0.2rem; }
+.patch-list-ready .count { color: var(--c-ready); }
+.patch-list-blocked .count { color: var(--danger); }
+.patch-list ul { list-style: none; }
+.patch-list li {
+    display: flex; align-items: baseline; gap: 0.6rem;
+    padding: 0.22rem 0; font-size: 0.9rem;
+    border-top: 1px solid var(--subtle);
+}
+.patch-list li:first-child { border-top: 0; }
+.patch-list .change { font-family: var(--mono); font-size: 0.84rem; text-decoration: none; flex: none; }
+.patch-list .change:hover { text-decoration: underline; }
+.patch-list .subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.patch-list .aside { flex: none; font-size: 0.82rem; color: var(--muted); white-space: nowrap; }
+.patch-list .reason { color: #b91c1c; }
+.patch-list .more { font-size: 0.84rem; margin-top: 0.3rem; }
+.patch-list .more a { text-decoration: none; }
+.patch-list .more a:hover { text-decoration: underline; }
+.patch-list .none { font-size: 0.88rem; color: var(--muted); }
 .detail-actions {
     display: flex;
     flex-wrap: wrap;
@@ -727,4 +785,5 @@ a { color: var(--primary); }
     .detail-actions .narrow-only { display: inline-flex; }
     .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
     .stat-wide { grid-column: 1 / -1; }
+    .patch-lists { grid-template-columns: 1fr; }
 }

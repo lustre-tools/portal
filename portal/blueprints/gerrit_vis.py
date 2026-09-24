@@ -6,6 +6,7 @@ from flask import (
     abort,
     current_app,
     flash,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -30,7 +31,7 @@ from portal.graph_store import (
     list_entries,
     update_schedule,
 )
-from portal.stats_view import MISSING, entry_view
+from portal.stats_view import MISSING, entry_view, group_totals
 from portal.tools.gc_graph import _normalize_labels
 from portal.tools.registry import get_tool, list_tools
 
@@ -62,17 +63,30 @@ def _visible_entries(entries):
     return [e for e in entries if not is_internal_entry(e, _public_project())]
 
 
+def _filters():
+    """The search and label filters from the query string, normalised:
+    labels lowercased, deduplicated, empties dropped."""
+    query = request.args.get("q", "")
+    labels = [label.strip().lower() for label in request.args.getlist("label") if label.strip()]
+    seen = set()
+    return query, [label for label in labels if not (label in seen or seen.add(label))]
+
+
+def _rerun_payload(entry):
+    """What the page's Edit and Rerun buttons need for one entry."""
+    return {
+        "params": entry.get("params", {}),
+        "name": entry.get("name", entry.get("subject", "")),
+        "labels": entry.get("labels", []),
+    }
+
+
 @gerrit_vis_bp.route("/")
 def index():
     """Public: anyone may browse public graphs. Signing in adds
     create/rerun/delete; the internal role adds internal graphs;
     scheduling stays admin-only."""
-    query = request.args.get("q", "")
-    label_filters = request.args.getlist("label")
-    # Normalize: lowercase, dedupe, drop empty
-    label_filters = [label.strip().lower() for label in label_filters if label.strip()]
-    seen = set()
-    label_filters = [label for label in label_filters if not (label in seen or seen.add(label))]
+    query, label_filters = _filters()
 
     output_dir = current_app.config["GRAPH_OUTPUT_DIR"]
     entries = list_entries(
@@ -103,20 +117,20 @@ def index():
         for e in entries:
             if not _can_act_on_entry(e):
                 continue
-            rerun_data[e["change_number"]] = {
-                "params": e.get("params", {}),
-                "name": e.get("name", e.get("subject", "")),
-                "labels": e.get("labels", []),
-            }
+            rerun_data[e["change_number"]] = _rerun_payload(e)
 
     now = time.time()
     views = {e["change_number"]: entry_view(e, now) for e in entries}
+    # Only for a filtered view: across everything, the totals mix
+    # unrelated series and say little.
+    totals = group_totals(entries, now) if (query or label_filters) else None
 
     return render_template(
         "gerrit_vis/index.html",
         tools=tools,
         entries=entries,
         views=views,
+        totals=totals,
         missing=MISSING,
         query=query,
         label_filters=label_filters,
@@ -168,6 +182,45 @@ def serve_graph(filename):
         abort(404)
 
     return send_from_directory(output_dir, filename)
+
+
+@gerrit_vis_bp.route("/row/<change_number>")
+def graph_row(change_number):
+    """One graph's list row, rendered, so the page can update it in place
+    after a rerun instead of reloading.
+
+    Same visibility as the list: an entry the session could not see
+    there is a 404 here, identical to one that does not exist.
+    ``matches`` says whether it belongs in the list under the filters
+    the page was opened with (passed through as ``q`` and ``label``).
+    """
+    if not is_valid_graph_id(change_number):
+        abort(404)
+    output_dir = current_app.config["GRAPH_OUTPUT_DIR"]
+    entry = get_entry(output_dir, change_number)
+    if not entry or not _visible_entries([entry]):
+        abort(404)
+
+    query, label_filters = _filters()
+    matches = any(
+        e["change_number"] == entry["change_number"]
+        for e in list_entries(output_dir, query or None, labels=label_filters or None)
+    )
+    html = render_template(
+        "gerrit_vis/_entry.html",
+        e=entry,
+        v=entry_view(entry, time.time()),
+        query=query,
+        label_filters=label_filters,
+        authenticated=is_authenticated(),
+        is_admin=is_admin(),
+        public_project=_public_project(),
+        missing=MISSING,
+    )
+    rerun = _rerun_payload(entry) if _can_act_on_entry(entry) else None
+    resp = jsonify(html=html, rerun=rerun, matches=matches)
+    resp.headers["Cache-Control"] = "no-store, private, max-age=0"
+    return resp
 
 
 @gerrit_vis_bp.route("/graphs/metadata/<change_number>", methods=["POST"])

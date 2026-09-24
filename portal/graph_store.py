@@ -121,6 +121,7 @@ def add_entry(
     touch_generated_at=True,
     tz=DEFAULT_TZ,
     summary=_KEEP,
+    patches=_KEEP,
 ):
     """Insert or replace the entry for ``change_number``.
 
@@ -129,7 +130,8 @@ def add_entry(
     summary is full of numbers that would match almost any query. Pass
     it after a regeneration -- ``None`` then means the new graph has
     none, and any old one is dropped. Leave it out for a metadata-only
-    edit, which keeps the stored one.
+    edit, which keeps the stored one. ``patches`` (the ready/blocked
+    lists and id sets) follows the same rule.
     """
     key = str(change_number)
     entry = {}
@@ -174,11 +176,12 @@ def add_entry(
             entry["stats"] = stats
         elif existing and "stats" in existing:
             entry["stats"] = existing["stats"]
-        if summary is _KEEP:
-            if existing and "summary" in existing:
-                entry["summary"] = existing["summary"]
-        elif summary:
-            entry["summary"] = summary
+        for field, value in (("summary", summary), ("patches", patches)):
+            if value is _KEEP:
+                if existing and field in existing:
+                    entry[field] = existing[field]
+            elif value:
+                entry[field] = value
         if labels is not None:
             entry["labels"] = labels
         elif existing and "labels" in existing:
@@ -294,7 +297,7 @@ def transfer_schedule(output_dir, from_change, to_change):
     _update(output_dir, mutate)
 
 
-def set_derived(output_dir, change_number, stats=None, summary=None):
+def set_derived(output_dir, change_number, stats=None, summary=None, patches=None):
     """Store stats and summary re-read from an existing graph file.
 
     Touches nothing else -- not the generation time, not the schedule --
@@ -309,6 +312,8 @@ def set_derived(output_dir, change_number, stats=None, summary=None):
                     e["stats"] = stats
                 if summary:
                     e["summary"] = summary
+                if patches:
+                    e["patches"] = patches
                 return entries
         return None
 

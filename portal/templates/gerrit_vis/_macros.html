@@ -1,0 +1,12 @@
+{# Small pieces shared by the list and the row endpoint. #}
+{% macro spark(bars) -%}
+<svg class="spark" viewBox="0 0 48 14" width="48" height="14" aria-hidden="true">
+    {%- for b in bars %}<rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" class="{{ 'bar-empty' if b.empty else 'bar' }}"/>{% endfor -%}
+</svg>
+{%- endmacro %}
+
+{% macro patch_link(p) -%}
+{%- if p and p.id -%}
+<a href="{{ gerrit_url }}/{{ p.id }}" target="_blank" rel="noopener" title="Open change {{ p.id }} in Gerrit">{{ p.id }}</a>{% if p.ticket %} <span class="muted">{{ p.ticket }}</span>{% endif %}
+{%- else -%}{{ missing }}{%- endif -%}
+{%- endmacro %}

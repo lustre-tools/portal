@@ -249,6 +249,7 @@ def test_backfill_reads_summaries_from_existing_files(app, graph_dir):
 
     assert _backfill(graph_dir, app.config["CI_VOTERS"]) == 0
     assert get_entry(graph_dir, "100")["summary"]["patches"] == 20
+    assert get_entry(graph_dir, "100")["patches"]["open_ids"] == []
     assert "summary" not in get_entry(graph_dir, "200")
 
 
@@ -287,3 +288,164 @@ def test_list_without_a_summary_still_renders(client, graph_dir):
     assert 'id="g-100"' in body
     assert "appear once this graph is regenerated" in body
     assert MISSING in body
+
+
+# ---------- ready / blocked lists ----------
+
+
+def _node(change, status="NEW", **review):
+    return {
+        "id": change,
+        "status": status,
+        "subject": f"LU-{change} subject",
+        "author": "me",
+        "last_activity": NOW - 2 * DAY,
+        "review": review,
+    }
+
+
+READY = {"verified_pass": True, "cr_votes": [{"name": "a", "value": 1}, {"name": "b", "value": 1}]}
+
+
+def test_extract_patches_sorts_open_patches_into_lists(tmp_path):
+    from portal.tools.graph_stats import extract_patches
+
+    g = {
+        "nodes": [
+            _node(3, **READY),
+            _node(1, cr_veto=True, cr_rejected_by="Rev Iewer"),
+            _node(2, verified_fail=True, verified_votes=[{"name": "Maloo", "value": -1}]),
+            _node(4),  # in review: neither list
+            _node(5, status="MERGED"),
+            _node(6, status="ABANDONED"),
+            {"id": "not-a-number", "status": "NEW"},
+        ]
+    }
+    p = extract_patches(write_graph(tmp_path, g))
+    assert [x["id"] for x in p["ready"]] == [3]
+    assert [(x["id"], x["reason"]) for x in p["blocked"]] == [
+        (1, "−2 by Rev Iewer"),
+        (2, "Maloo −1"),
+    ]
+    assert p["open_ids"] == [1, 2, 3, 4]
+    assert p["merged_ids"] == [5]
+
+
+def test_patch_lists_are_trimmed_for_display():
+    from portal.stats_view import LIST_LIMIT
+
+    many = [{"id": i, "subject": "s", "reason": "Verified −1"} for i in range(LIST_LIMIT + 3)]
+    v = entry_view({"patches": {"ready": [], "blocked": many}}, NOW)
+    assert len(v["blocked_list"]) == LIST_LIMIT and v["blocked_more"] == 3
+    assert v["ready_list"] == [] and v["ready_more"] == 0
+
+
+def test_patches_are_replaced_on_regeneration_and_kept_on_edits(graph_dir):
+    add_entry(graph_dir, "100", patches={"ready": [{"id": 1, "subject": "x"}]})
+    add_entry(graph_dir, "100", name="renamed")
+    assert get_entry(graph_dir, "100")["patches"]["ready"][0]["id"] == 1
+    add_entry(graph_dir, "100", patches=None)
+    assert "patches" not in get_entry(graph_dir, "100")
+
+
+def test_expanded_row_lists_ready_and_blocked(client, graph_dir):
+    add_entry(
+        graph_dir,
+        "100",
+        name="Series",
+        patches={
+            "ready": [{"id": 64321, "subject": "LU-1 land me", "last_activity": NOW}],
+            "blocked": [{"id": 64322, "subject": "LU-1 stuck", "reason": "Maloo −1"}],
+            "open_ids": [64321, 64322],
+            "merged_ids": [],
+        },
+    )
+    body = client.get("/gerrit_vis/").data.decode()
+    assert "Ready to land" in body and "LU-1 land me" in body
+    assert "Maloo −1" in body
+
+
+# ---------- totals for a filtered view ----------
+
+
+def _with_patches(ready, blocked, open_ids, merged_ids, merged_events=()):
+    return {
+        "patches": {
+            "ready": [{"id": i} for i in ready],
+            "blocked": [{"id": i} for i in blocked],
+            "open_ids": open_ids,
+            "merged_ids": merged_ids,
+        },
+        "summary": {"recent_events": {"merged": list(merged_events)}},
+    }
+
+
+def test_group_totals_count_a_shared_patch_once():
+    from portal.stats_view import group_totals
+
+    shared_merge = NOW - 5 * DAY
+    a = _with_patches([1], [2], [1, 2, 3], [10, 11], [shared_merge])
+    b = _with_patches([1], [], [1, 4], [11, 12], [shared_merge, NOW - 40 * DAY])
+    t = group_totals([a, b], NOW)
+    assert (t["graphs"], t["ready"], t["blocked"], t["open"], t["merged"]) == (2, 1, 1, 4, 3)
+    assert t["in_review"] == 2  # 3 and 4
+    assert (t["merged_30d"], t["merged_prev_30d"], t["trend"]) == (1, 1, "flat")
+    assert not t["approx"]
+
+
+def test_group_totals_fall_back_to_counts_for_older_graphs():
+    from portal.stats_view import group_totals
+
+    old = {"stats": {"ready": 2, "inflight": 5, "merged": 1, "blocked": 1, "pending": 2}}
+    t = group_totals([old, _with_patches([7], [], [7], [])], NOW)
+    assert (t["ready"], t["open"], t["merged"]) == (3, 6, 1)
+    assert t["approx"]
+
+
+def test_totals_show_only_on_a_filtered_view(client, graph_dir):
+    add_entry(graph_dir, "100", labels=["2.18"], **_with_patches([1], [], [1, 2], [3]))
+    add_entry(graph_dir, "200", labels=["2.18"], **_with_patches([1], [], [1], [3]))
+    assert "group-summary" not in client.get("/gerrit_vis/").data.decode()
+    body = client.get("/gerrit_vis/?label=2.18").data.decode()
+    assert 'class="group-summary"' in body
+    assert "counted once" in body
+
+
+# ---------- the row endpoint ----------
+
+
+def test_row_endpoint_renders_the_same_row(client, graph_dir):
+    add_entry(graph_dir, "100", name="Series", labels=["2.18"], summary=sample_summary())
+    resp = client.get("/gerrit_vis/row/100?label=2.18")
+    assert resp.status_code == 200
+    assert "no-store" in resp.headers["Cache-Control"]
+    d = resp.get_json()
+    assert d["html"].lstrip().startswith('<tbody class="entry" id="g-100"')
+    assert d["matches"] is True
+    assert d["rerun"] is None  # signed out: nothing to act with
+
+    assert client.get("/gerrit_vis/row/100?label=other").get_json()["matches"] is False
+
+
+def test_row_endpoint_gives_the_actions_to_a_signed_in_user(client, login, graph_dir):
+    add_entry(graph_dir, "100", name="Series", params={"change_number": "100"})
+    login("alice", "alicepw")
+    d = client.get("/gerrit_vis/row/100").get_json()
+    assert d["rerun"]["params"]["change_number"] == "100"
+    assert "btn-rerun" in d["html"]
+
+
+def test_row_endpoint_hides_internal_entries_like_missing_ones(client, login, graph_dir):
+    add_entry(graph_dir, "100", project="internal/example-project")
+    login("alice", "alicepw")
+    hidden = client.get("/gerrit_vis/row/100")
+    missing = client.get("/gerrit_vis/row/999")
+    assert hidden.status_code == missing.status_code == 404
+    assert hidden.data == missing.data
+    assert client.get("/gerrit_vis/row/..%2Findex").status_code == 404
+
+
+def test_row_endpoint_shows_internal_entries_to_insiders(client, login_internal, graph_dir):
+    add_entry(graph_dir, "100", project="internal/example-project")
+    login_internal()
+    assert client.get("/gerrit_vis/row/100").status_code == 200
