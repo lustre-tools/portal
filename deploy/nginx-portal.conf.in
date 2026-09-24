@@ -13,7 +13,11 @@
 # at http level -- and a site file is always included from inside
 # http{}, so declaring it here works on every distribution's layout.
 # 10 MB tracks on the order of 160k client addresses.
-limit_req_zone $binary_remote_addr zone=portal_login:10m rate=10r/m;
+#
+# The name carries @ZONE_ID@ because zone names are global to the nginx
+# instance: two portal sites on one host with the same name is a hard
+# [emerg] "already bound to key" and nginx will not start.
+limit_req_zone $binary_remote_addr zone=portal_login_@ZONE_ID@:10m rate=10r/m;
 
 server {
     listen 80;
@@ -42,7 +46,7 @@ server {
     ssl_prefer_server_ciphers off;
     # A zone name of our own: "SSL" is the common default and a host with
     # another site using it at a different size fails nginx -t.
-    ssl_session_cache shared:portal_ssl:10m;
+    ssl_session_cache shared:portal_ssl_@ZONE_ID@:10m;
     ssl_session_timeout 1d;
 
     # Generated graphs embed their own data; a few are large.
@@ -53,7 +57,7 @@ server {
 
     # --- rate limiting -------------------------------------------------
     location = /login {
-        limit_req zone=portal_login burst=5 nodelay;
+        limit_req zone=portal_login_@ZONE_ID@ burst=5 nodelay;
         limit_req_status 429;
 
         proxy_pass http://127.0.0.1:@PORT@;

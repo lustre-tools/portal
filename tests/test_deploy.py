@@ -31,7 +31,8 @@ SUBSTITUTIONS = {
     "TLS_CERT": "/etc/letsencrypt/live/portal.example.org/fullchain.pem",
     "TLS_KEY": "/etc/letsencrypt/live/portal.example.org/privkey.pem",
     "ACME_ROOT": "/var/www/html",
-    "SNIPPET_DIR": "/etc/nginx/conf.d",
+    "SNIPPET_DIR": "/etc/nginx/portal",
+    "ZONE_ID": "portal_example_org",
     "DASHBOARD_BLOCK": "",
 }
 
@@ -192,6 +193,57 @@ def test_env_example_has_no_real_values():
                 continue
             key, _, value = line.partition("=")
             assert value == "", f"{key} must be blank in .env.example, got a value"
+
+
+def test_nginx_shared_zones_are_unique_per_site():
+    """Zone names are global to the nginx instance, not to a site file.
+
+    Two portal installs on one host that both declare zone=portal_login
+    is a hard [emerg] "already bound to key" and nginx refuses to start.
+    Staging plus production on one box is the obvious way to hit it, and
+    it did: `nginx -t` failed the moment a second site was enabled. So
+    every shared zone name carries the @ZONE_ID@ the installer derives
+    from the server name.
+    """
+    with open(os.path.join(DEPLOY, "nginx-portal.conf.in")) as f:
+        raw = f.read()
+    declared = re.findall(r"(?:shared|zone)=?:?([A-Za-z_]*@ZONE_ID@|[A-Za-z_]+):", raw)
+    zones = re.findall(r"zone=([A-Za-z_@]+):", raw) + re.findall(r"shared:([A-Za-z_@]+):", raw)
+    assert zones, "no shared zones found -- did the template change?"
+    for z in zones:
+        assert "@ZONE_ID@" in z, (
+            f"zone {z!r} has no @ZONE_ID@; a second portal site on the same "
+            f"host would fail nginx -t with 'already bound to key'"
+        )
+    # And every use must reference the same parameterised name.
+    for used in re.findall(r"limit_req zone=([A-Za-z_@]+) ", raw):
+        assert "@ZONE_ID@" in used, used
+
+
+def test_installer_derives_a_zone_id_from_the_server_name():
+    with open(os.path.join(ROOT, "install.sh")) as f:
+        text = f.read()
+    assert "ZONE_ID=$(printf" in text
+    assert "s|@ZONE_ID@|$ZONE_ID|g" in text
+
+
+def test_nginx_headers_restate_everything_the_global_block_sets():
+    """add_header discards every inherited header, so a partial list here
+    silently removes the rest. The site this replaced set seven; dropping
+    X-Robots-Tag alone would have made every generated graph indexable.
+    """
+    with open(os.path.join(DEPLOY, "portal-headers.conf")) as f:
+        snippet = f.read()
+    for header in (
+        "Strict-Transport-Security",
+        "X-Content-Type-Options",
+        "Referrer-Policy",
+        "X-Frame-Options",
+        "X-Robots-Tag",
+        "X-Download-Options",
+        "X-Permitted-Cross-Domain-Policies",
+    ):
+        assert header in snippet, f"{header} missing -- it would be silently dropped"
 
 
 def test_nginx_shared_zones_have_portal_specific_names():

@@ -43,6 +43,7 @@ ACME_ROOT=""
 NGINX_SITE_DIR=""
 NGINX_ENABLE_DIR=""
 NGINX_SNIPPET_DIR=""
+ZONE_ID=""
 
 ok()   { printf '%s✓%s %s\n' "$GREEN" "$NC" "$*"; }
 warn() { printf '%swarning:%s %s\n' "$YELLOW" "$NC" "$*" >&2; }
@@ -174,6 +175,7 @@ render() {
         -e "s|@TLS_KEY@|$TLS_KEY|g" \
         -e "s|@ACME_ROOT@|$ACME_ROOT|g" \
         -e "s|@SNIPPET_DIR@|$NGINX_SNIPPET_DIR|g" \
+        -e "s|@ZONE_ID@|$ZONE_ID|g" \
         "$1"
 }
 
@@ -382,6 +384,9 @@ EOF
     if detect_nginx_layout; then
         step "Configuring nginx ($NGINX_SITE_DIR)"
         ask SERVER_NAME "Public hostname" "${SERVER_NAME:-$(hostname -f 2>/dev/null || hostname)}"
+        # nginx shared-memory zone names are global to the instance, so
+        # they must differ between two portal sites on one host.
+        ZONE_ID=$(printf '%s' "$SERVER_NAME" | tr -c '[:alnum:]' '_' | sed 's/_*$//')
 
         TLS_CERT="${PORTAL_TLS_CERT:-/etc/letsencrypt/live/$SERVER_NAME/fullchain.pem}"
         TLS_KEY="${PORTAL_TLS_KEY:-/etc/letsencrypt/live/$SERVER_NAME/privkey.pem}"
