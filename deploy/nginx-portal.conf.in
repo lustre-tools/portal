@@ -52,8 +52,10 @@ server {
     # Generated graphs embed their own data; a few are large.
     client_max_body_size 4m;
 
-    access_log @LOG_DIR@/portal-access.log;
-    error_log  @LOG_DIR@/portal-error.log;
+    # Under the nginx log dir so the distribution's logrotate rule
+    # covers them; named per site so two installs do not share one.
+    access_log @LOG_DIR@/portal-@ZONE_ID@-access.log;
+    error_log  @LOG_DIR@/portal-@ZONE_ID@-error.log;
 
     # --- rate limiting -------------------------------------------------
     location = /login {
@@ -63,6 +65,20 @@ server {
         proxy_pass http://127.0.0.1:@PORT@;
         include @SNIPPET_DIR@/portal-proxy.conf;
         include @SNIPPET_DIR@/portal-headers.conf;
+    }
+
+    # --- /_authcheck ----------------------------------------------------
+    # For nginx auth_request subrequests only. `internal` makes a direct
+    # browser request a 404 while subrequests still reach the app, which
+    # matches how the gate behaved before the portal. To gate on a role,
+    # give the role its own internal location whose proxy_pass carries
+    # ?role=<name> -- auth_request itself does not pass a query string.
+    location = /_authcheck {
+        internal;
+        proxy_pass http://127.0.0.1:@PORT@;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        include @SNIPPET_DIR@/portal-proxy.conf;
     }
 
     # --- WebSocket ------------------------------------------------------

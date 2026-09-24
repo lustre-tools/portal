@@ -21,7 +21,7 @@ SUBSTITUTIONS = {
     "APP_DIR": "/opt/portal",
     "DATA_DIR": "/var/lib/portal",
     "CONFIG_DIR": "/etc/portal",
-    "LOG_DIR": "/var/log",
+    "LOG_DIR": "/var/log/nginx",
     "VENV": "/opt/portal/.venv",
     "USER": "portal",
     "GROUP": "portal",
@@ -294,3 +294,41 @@ def test_installer_can_decline_the_dashboard_non_interactively():
     assert "PORTAL_WITH_DASHBOARD" in text
     decline = text[text.index('case "${PORTAL_WITH_DASHBOARD') :]
     assert "0|no|false" in decline[:400]
+
+
+def test_nginx_hides_upstream_copies_of_the_headers_it_sets():
+    """The app sets its own security headers and nginx adds them again.
+    Without proxy_hide_header each reached the browser twice -- and a
+    doubled X-Frame-Options can be treated as invalid and ignored."""
+    with open(os.path.join(DEPLOY, "portal-headers.conf")) as f:
+        snippet = f.read()
+    added = set(re.findall(r"^add_header\s+(\S+)", snippet, re.M))
+    hidden = set(re.findall(r"^proxy_hide_header\s+(\S+);", snippet, re.M))
+    assert added, "no headers found"
+    assert added <= hidden, f"added but not hidden upstream: {sorted(added - hidden)}"
+
+
+def test_nginx_logs_go_where_logrotate_looks():
+    """Every distribution rotates /var/log/nginx/*log. A log written
+    anywhere else grows without bound."""
+    site = render("nginx-portal.conf.in")
+    for path in re.findall(r"(?:access|error)_log\s+(\S+);", site):
+        assert path.startswith("/var/log/nginx/"), path
+        assert "@ZONE_ID@" not in path and "portal_example_org" in path, (
+            "logs must be named per site so two installs do not share one"
+        )
+
+
+def test_authcheck_is_not_reachable_from_a_browser():
+    """It exists for nginx subrequests. The gate it replaced was marked
+    internal, so a direct request was a 404; keep that."""
+    site = render("nginx-portal.conf.in")
+    block = site[site.index("location = /_authcheck") :]
+    block = block[: block.index("}")]
+    assert "internal;" in block
+
+
+def test_installer_sets_one_proxy_hop_behind_nginx():
+    with open(os.path.join(ROOT, "install.sh")) as f:
+        text = f.read()
+    assert 'PORTAL_PROXY_HOPS="1"' in text

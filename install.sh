@@ -26,7 +26,7 @@ ASSUME_YES=0
 APP_DIR="${PORTAL_APP_DIR:-/opt/portal}"
 DATA_DIR="${PORTAL_DATA_DIR:-/var/lib/portal}"
 CONFIG_DIR="${PORTAL_CONFIG_DIR:-/etc/portal}"
-LOG_DIR="${PORTAL_LOG_DIR:-/var/log}"
+LOG_DIR="${PORTAL_LOG_DIR:-/var/log/nginx}"
 SVC_USER="${PORTAL_USER:-portal}"
 PORT="${PORTAL_BIND_PORT:-5000}"
 DASH_PORT="${PORTAL_DASH_PORT:-5056}"
@@ -417,6 +417,12 @@ import sys
 sys.stdout.write(sys.stdin.read().replace("@DASHBOARD_BLOCK@", sys.argv[1]))
 ' "$(dashboard_block)" \
             | write_file "$site" 644
+
+        # Behind this nginx, the app must trust exactly one proxy hop, or
+        # every client is 127.0.0.1 and per-IP limiting means nothing.
+        if [ "$DRY_RUN" = 0 ] && ! grep -q "^PORTAL_PROXY_HOPS=" "$CONFIG_DIR/portal.env" 2>/dev/null; then
+            printf 'PORTAL_PROXY_HOPS="1"\n' >> "$CONFIG_DIR/portal.env"
+        fi
 
         if [ -n "$NGINX_ENABLE_DIR" ]; then
             run install -d -m 755 "$NGINX_ENABLE_DIR"
