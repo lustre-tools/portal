@@ -144,3 +144,31 @@ def test_a_bad_tools_dir_is_refused(tmp_path):
     r = run(["--dry-run", "--yes"], tmp_path / "cfg", {"PORTAL_TOOLS_DIR": str(tmp_path)})
     assert r.returncode != 0
     assert "not an llm_code_and_review_tools checkout" in r.stderr
+
+
+# ---------- the dashboard choice ----------
+
+
+def _installs_dashboard(output):
+    return "portal-dashboard.service" in output
+
+
+def test_the_dashboard_can_be_declined_non_interactively(tmp_path):
+    """--yes accepts every prompt. A host that already runs a dashboard
+    must be able to say no, or it gets a second one on the same port."""
+    r = run(["--dry-run", "--yes"], tmp_path / "cfg", {"PORTAL_WITH_DASHBOARD": "0"})
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert not _installs_dashboard(r.stdout)
+
+
+def test_the_dashboard_can_be_accepted_non_interactively(tmp_path):
+    r = run(["--dry-run", "--yes"], tmp_path / "cfg", {"PORTAL_WITH_DASHBOARD": "1"})
+    assert _installs_dashboard(r.stdout)
+
+
+def test_a_declined_dashboard_stays_declined_on_a_re_run(tmp_path):
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    remember(cfg, WITH_DASHBOARD="0")
+    r = run(["--dry-run", "--yes"], cfg)
+    assert not _installs_dashboard(r.stdout)

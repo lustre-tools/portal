@@ -285,17 +285,6 @@ def test_installer_creates_the_site_extra_directory():
     assert 'install -d -m 755 "$NGINX_SNIPPET_DIR/site-extra"' in text
 
 
-def test_installer_can_decline_the_dashboard_non_interactively():
-    """--yes answers every prompt yes. A host that already runs its own
-    dashboard must be able to say no, or the installer starts a second
-    one competing for the same port."""
-    with open(os.path.join(ROOT, "install.sh")) as f:
-        text = f.read()
-    assert "PORTAL_WITH_DASHBOARD" in text
-    decline = text[text.index('case "${PORTAL_WITH_DASHBOARD') :]
-    assert "0|no|false" in decline[:400]
-
-
 def test_nginx_hides_upstream_copies_of_the_headers_it_sets():
     """The app sets its own security headers and nginx adds them again.
     Without proxy_hide_header each reached the browser twice -- and a
