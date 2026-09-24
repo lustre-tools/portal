@@ -18,6 +18,8 @@ import tempfile
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+from portal.fsutil import owner_to_keep
+
 DEFAULT_TZ = ZoneInfo("UTC")
 DEFAULT_ANCHOR = time(8, 0)
 
@@ -65,8 +67,12 @@ def _load_index(output_dir):
 
 def _write_index(output_dir, entries):
     """Replace the index in one step. Caller must hold the lock."""
+    index = _index_path(output_dir)
+    owner = owner_to_keep(index)
     fd, tmp_path = tempfile.mkstemp(dir=output_dir, suffix=".tmp")
     try:
+        if owner:
+            os.fchown(fd, *owner)
         with os.fdopen(fd, "w") as tmp_f:
             json.dump(entries, tmp_f, indent=2)
         os.replace(tmp_path, _index_path(output_dir))

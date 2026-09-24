@@ -487,3 +487,8 @@ body {
     cursor: pointer;
 }
 .link-button:hover { opacity: 0.8; }
+
+/* === Sign-out confirmation === */
+.logout-confirm { text-align: center; padding: 4rem 1rem; }
+.logout-confirm p { margin-bottom: 1.5rem; font-size: 1.1rem; }
+.logout-confirm .btn { margin: 0 0.25rem; }

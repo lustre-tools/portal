@@ -188,12 +188,23 @@ def register_auth_routes(app):
 
         return render_template("login.html")
 
-    @app.route("/logout", methods=["POST"], endpoint="auth.logout")
+    @app.route("/logout", methods=["GET", "POST"], endpoint="auth.logout")
     def logout():
-        # POST, not GET: a GET logout can be triggered by any page that
-        # can make your browser fetch a URL -- an <img> tag is enough.
-        # Being logged out is not dangerous, but it is not something a
-        # third-party page should be able to do to you.
+        # Signing out happens only on POST: a GET logout can be triggered
+        # by any page that can make your browser fetch a URL -- an <img>
+        # tag is enough. Not dangerous, but not something a third-party
+        # page should be able to do to you.
+        #
+        # GET still has to answer, though. The first version was POST-only
+        # and a GET was a bare 405, which is what every bookmark, every
+        # tab still showing an older navbar, and the /<private>/logout
+        # redirect all hit. A GET now shows a one-button confirmation that
+        # POSTs with a CSRF token, so the link works and the protection
+        # stays.
+        if request.method == "GET":
+            if not is_authenticated():
+                return redirect(url_for("gerrit_vis.index"))
+            return render_template("logout.html")
         session.clear()
         return redirect(url_for("gerrit_vis.index"))
 
@@ -201,19 +212,18 @@ def register_auth_routes(app):
     def authcheck():
         """Bare 200/401 gate for an nginx ``auth_request``.
 
-        Lets an operator put any proxied service behind this portal's
-        login::
+        Without ``?role=`` it checks only that someone is signed in, and
+        ``auth_request /_authcheck;`` is all that needs.
 
-            location /private-thing/ {
-                auth_request /_authcheck?role=internal;
-                error_page 401 = @portal_login;
-                proxy_pass http://127.0.0.1:9000/;
-            }
+        To gate on a role, the role must reach this view in the query
+        string -- and ``auth_request`` does not pass one: writing
+        ``auth_request /_authcheck?role=x;`` returns a 500 for every
+        visitor. Give the role its own internal location whose
+        ``proxy_pass`` carries the query instead; see the README.
 
         Deliberately undecorated: the decorators redirect, and
         ``auth_request`` treats a 302 as a failure rather than a clean
-        deny. Without ``?role=`` it checks only that someone is signed
-        in.
+        deny.
         """
         role = request.args.get("role", "")
         if role:

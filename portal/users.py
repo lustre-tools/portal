@@ -32,6 +32,8 @@ import tempfile
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from portal.fsutil import owner_to_keep
+
 #: Roles the application itself understands.
 ROLE_ADMIN = "admin"
 ROLE_INTERNAL = "internal"
@@ -135,13 +137,18 @@ def save_users(path, data):
     directory = os.path.dirname(os.path.abspath(path)) or "."
     os.makedirs(directory, exist_ok=True)
 
+    owner = owner_to_keep(path)
     lock_path = path + ".lock"
     with open(lock_path, "w") as lock:
+        if owner:
+            os.fchown(lock.fileno(), *owner)
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
             fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
             try:
                 os.fchmod(fd, 0o600)
+                if owner:
+                    os.fchown(fd, *owner)
                 with os.fdopen(fd, "w") as f:
                     json.dump(data, f, indent=2)
                     f.write("\n")

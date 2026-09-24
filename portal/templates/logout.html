@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Sign out - {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="logout-confirm">
+    <p>Sign out of {{ site_name }}?</p>
+    <form method="post" action="{{ url_for('auth.logout') }}">
+        {{ csrf_field() }}
+        <button type="submit" class="btn btn-primary">Sign out</button>
+        <a href="{{ url_for('gerrit_vis.index') }}" class="btn">Cancel</a>
+    </form>
+</div>
+{% endblock %}

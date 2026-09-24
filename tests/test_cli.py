@@ -261,3 +261,48 @@ def test_save_then_load_round_trips(store):
     data = {"version": 2, "users": {"a": {"password_hash": "h", "roles": ["admin"]}}}
     save_users(store, data)
     assert load_users(store) == data
+
+
+# ---------- running as root must not lock the service out ----------
+
+
+def _as_root(monkeypatch, calls):
+    import os
+
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(os, "fchown", lambda fd, uid, gid: calls.append((uid, gid)))
+
+
+def test_a_root_run_write_keeps_the_existing_owner(store, monkeypatch):
+    """Root is exactly who runs portal-users on a server. Without this the
+    rewritten store came out root-owned 0600, the service user could not
+    read it, and every login failed."""
+    import os
+
+    set_pw(store, "sam", "x", monkeypatch)
+    st = os.stat(store)
+    calls = []
+    _as_root(monkeypatch, calls)
+    set_pw(store, "sam", "y", monkeypatch)
+    assert calls, "a root-run write did not preserve ownership"
+    assert all(c == (st.st_uid, st.st_gid) for c in calls)
+
+
+def test_a_root_run_first_write_takes_the_directory_owner(store, monkeypatch):
+    import os
+
+    calls = []
+    _as_root(monkeypatch, calls)
+    set_pw(store, "sam", "x", monkeypatch)
+    d = os.stat(os.path.dirname(store))
+    assert (d.st_uid, d.st_gid) in calls
+
+
+def test_a_non_root_write_changes_no_ownership(store, monkeypatch):
+    import os
+
+    calls = []
+    monkeypatch.setattr(os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(os, "fchown", lambda *a: calls.append(a))
+    set_pw(store, "sam", "x", monkeypatch)
+    assert calls == []

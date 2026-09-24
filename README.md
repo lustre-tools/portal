@@ -85,14 +85,15 @@ immediately rather than at the user's next login.
 
 ## Gating your own services
 
-The portal exposes `/_authcheck?role=<role>`, which answers a bare 200
-or 401. That is exactly what nginx's `auth_request` wants, so you can
-put any other service behind this login without the portal knowing
-anything about it:
+The portal exposes `/_authcheck`, which answers a bare 200 or 401 --
+exactly what nginx's `auth_request` wants. So you can put any other
+service behind this login without the portal knowing about it.
+
+To require only that someone is signed in:
 
 ```nginx
-location /internal-thing/ {
-    auth_request /_authcheck?role=internal;
+location /some-thing/ {
+    auth_request /_authcheck;
     error_page 401 = @portal_login;
     proxy_pass http://127.0.0.1:9000/;
 }
@@ -101,6 +102,31 @@ location @portal_login {
     return 302 /login?next=$request_uri;
 }
 ```
+
+To require a role, give that role its own internal location and put the
+role in **its** `proxy_pass`:
+
+```nginx
+location /internal-thing/ {
+    auth_request /_auth_internal;
+    error_page 401 = @portal_login;
+    proxy_pass http://127.0.0.1:9000/;
+}
+
+location = /_auth_internal {
+    internal;
+    proxy_pass http://127.0.0.1:5000/_authcheck?role=internal;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    include /etc/nginx/portal/portal-proxy.conf;
+}
+```
+
+**Do not write the role into `auth_request` itself.**
+`auth_request /_authcheck?role=internal;` does not work: nginx does not
+pass a query string on the subrequest, so it fails -- with a 500 for
+every visitor. Drop these files into `/etc/nginx/portal/site-extra/` and
+they survive the next `install.sh`.
 
 Roles are free-form, so `--role wiki` and `?role=wiki` work without
 changing any code.

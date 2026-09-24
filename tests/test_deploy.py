@@ -332,3 +332,15 @@ def test_installer_sets_one_proxy_hop_behind_nginx():
     with open(os.path.join(ROOT, "install.sh")) as f:
         text = f.read()
     assert 'PORTAL_PROXY_HOPS="1"' in text
+
+
+def test_readme_does_not_document_a_role_in_auth_request():
+    """auth_request does not pass a query string. Written that way the
+    gate returns 500 for every visitor -- measured, not assumed. The
+    README once showed exactly that."""
+    with open(os.path.join(ROOT, "README.md")) as f:
+        readme = f.read()
+    code = "\n".join(re.findall(r"```nginx\n(.*?)```", readme, re.S))
+    assert not re.search(r"^\s*auth_request\s+\S*\?", code, re.M), (
+        "a role in auth_request itself does not work"
+    )

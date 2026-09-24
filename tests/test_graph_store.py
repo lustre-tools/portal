@@ -257,3 +257,19 @@ def test_index_file_locking_concurrent_writes(graph_dir):
     # Confirm valid JSON on disk
     with open(os.path.join(graph_dir, "index.json")) as f:
         json.load(f)
+
+
+def test_a_root_run_index_write_keeps_the_existing_owner(graph_dir, monkeypatch):
+    """A root-run portal-refresh must not leave index.json root-owned and
+    unreadable by the service -- that would take down the whole site."""
+    import os
+
+    from portal.graph_store import add_entry
+
+    add_entry(graph_dir, "1")
+    st = os.stat(os.path.join(graph_dir, "index.json"))
+    calls = []
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(os, "fchown", lambda fd, uid, gid: calls.append((uid, gid)))
+    add_entry(graph_dir, "2")
+    assert (st.st_uid, st.st_gid) in calls

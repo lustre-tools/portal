@@ -161,13 +161,40 @@ def test_post_with_a_wrong_token_is_rejected(client, graph_dir):
     assert get_entry(graph_dir, "3232") is not None
 
 
-def test_logout_requires_a_post(client, login):
+def test_a_get_to_logout_does_not_sign_you_out(client, login):
     """A GET logout can be triggered by any page that makes your browser
-    fetch a URL -- an <img> tag is enough."""
+    fetch a URL -- an <img> tag is enough. So a GET must not sign out."""
     login("alice", "alicepw")
-    assert client.get("/logout").status_code == 405
+    client.get("/logout")
     with client.session_transaction() as sess:
         assert sess.get("auth_user") == "alice"
+
+
+def test_a_get_to_logout_is_not_an_error(client, login):
+    """It must still answer. POST-only made every bookmark, every tab
+    still showing the old navbar, and /<private>/logout a bare 405."""
+    login("alice", "alicepw")
+    resp = client.get("/logout")
+    assert resp.status_code == 200
+    body = resp.data.decode()
+    assert 'method="post"' in body and 'name="csrf_token"' in body, (
+        "the confirmation must POST with a CSRF token"
+    )
+
+
+def test_get_logout_when_signed_out_just_goes_home(client):
+    resp = client.get("/logout")
+    assert resp.status_code == 302
+    assert "/gerrit_vis/" in resp.headers["Location"]
+
+
+def test_private_area_logout_reaches_a_working_page(client, login_internal):
+    """/<private>/logout redirects to /logout; that must not dead-end."""
+    login_internal()
+    resp = client.get("/private/logout", follow_redirects=True)
+    assert resp.status_code == 200
+    with client.session_transaction() as sess:
+        assert sess.get("auth_user") == "insider", "a GET must not sign out"
 
 
 def test_get_requests_never_need_a_token(client):
