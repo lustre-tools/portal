@@ -360,7 +360,16 @@ EOF
     fi
 
     # ---- optional dashboard
-    if confirm "Also run the public Gerrit dashboard and embed it?"; then
+    # PORTAL_WITH_DASHBOARD=0 declines without asking. Needed because
+    # --yes otherwise always accepts, and a host that already runs its
+    # own dashboard would get a second one competing for the port.
+    local want_dash
+    case "${PORTAL_WITH_DASHBOARD:-ask}" in
+        0|no|false)  want_dash=1 ;;
+        1|yes|true)  want_dash=0 ;;
+        *)           confirm "Also run the public Gerrit dashboard and embed it?" && want_dash=0 || want_dash=1 ;;
+    esac
+    if [ "$want_dash" = 0 ]; then
         WITH_DASHBOARD=1
         run install -d -m 750 "$DATA_DIR/dashboard-public"
         run chown "$SVC_USER:$SVC_USER" "$DATA_DIR/dashboard-public"
