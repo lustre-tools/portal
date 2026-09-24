@@ -207,7 +207,6 @@ def test_nginx_shared_zones_are_unique_per_site():
     """
     with open(os.path.join(DEPLOY, "nginx-portal.conf.in")) as f:
         raw = f.read()
-    declared = re.findall(r"(?:shared|zone)=?:?([A-Za-z_]*@ZONE_ID@|[A-Za-z_]+):", raw)
     zones = re.findall(r"zone=([A-Za-z_@]+):", raw) + re.findall(r"shared:([A-Za-z_@]+):", raw)
     assert zones, "no shared zones found -- did the template change?"
     for z in zones:
