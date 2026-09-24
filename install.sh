@@ -447,17 +447,34 @@ sys.stdout.write(sys.stdin.read().replace("@DASHBOARD_BLOCK@", sys.argv[1]))
 
     # ---- start
     step "Starting services"
-    run systemctl enable --now portal.service
-    run systemctl enable --now portal-refresh.timer
-    [ "$WITH_DASHBOARD" = 1 ] && run systemctl enable --now portal-dashboard.service
+    # restart, not "enable --now". enable --now starts a stopped unit and
+    # does nothing to a running one, so re-running this script to upgrade
+    # -- which is what the README says to do -- installed the new code and
+    # left the old process serving it. It then reported the stale process
+    # as running.
+    local started
+    started=$(date +%s)
+    run systemctl enable portal.service portal-refresh.timer
+    run systemctl restart portal.service
+    run systemctl restart portal-refresh.timer
+    if [ "$WITH_DASHBOARD" = 1 ]; then
+        run systemctl enable portal-dashboard.service
+        run systemctl restart portal-dashboard.service
+    fi
 
     if [ "$DRY_RUN" = 0 ]; then
         sleep 2
-        if systemctl is-active --quiet portal.service; then
-            ok "portal.service is running"
-        else
+        if ! systemctl is-active --quiet portal.service; then
             die "portal.service failed to start. journalctl -u portal.service -n 50"
         fi
+        # Prove the process is the one just started, not a survivor.
+        local since
+        since=$(systemctl show -p ActiveEnterTimestampMonotonic --value portal.service)
+        local up_for=$(( $(cut -d. -f1 /proc/uptime) - since / 1000000 ))
+        if [ "$up_for" -gt $(( $(date +%s) - started + 5 )) ]; then
+            die "portal.service is running, but it did not restart -- it is still serving the old code"
+        fi
+        ok "portal.service is running the code just installed"
     fi
 
     step "Done"
