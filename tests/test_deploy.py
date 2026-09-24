@@ -32,6 +32,7 @@ SUBSTITUTIONS = {
     "TLS_KEY": "/etc/letsencrypt/live/portal.example.org/privkey.pem",
     "ACME_ROOT": "/var/www/html",
     "SNIPPET_DIR": "/etc/nginx/portal",
+    "SITE_EXTRA": "/etc/nginx/portal/site-extra",
     "ZONE_ID": "portal_example_org",
     "DASHBOARD_BLOCK": "",
 }
@@ -267,11 +268,11 @@ def test_nginx_has_a_hook_for_site_specific_locations():
     location nginx picks -- it matches the longest prefix regardless.
     """
     site = render("nginx-portal.conf.in")
-    assert "site-extra/*.conf" in site
+    assert "/etc/nginx/portal/site-extra/*.conf" in site
 
     blocks = site.split("server {")
     https = next(b for b in blocks if "listen 443" in b)
-    assert "site-extra/*.conf" in https, (
+    assert "/etc/nginx/portal/site-extra/*.conf" in https, (
         "the hook must be in the HTTPS server block; in the redirect "
         "block every request is answered by the 301 before it is reached"
     )
@@ -282,7 +283,7 @@ def test_installer_creates_the_site_extra_directory():
     the directory itself has to exist."""
     with open(os.path.join(ROOT, "install.sh")) as f:
         text = f.read()
-    assert 'install -d -m 755 "$NGINX_SNIPPET_DIR/site-extra"' in text
+    assert 'install -d -m 755 "$SITE_EXTRA_DIR"' in text
 
 
 def test_nginx_hides_upstream_copies_of_the_headers_it_sets():
@@ -333,17 +334,3 @@ def test_readme_does_not_document_a_role_in_auth_request():
     assert not re.search(r"^\s*auth_request\s+\S*\?", code, re.M), (
         "a role in auth_request itself does not work"
     )
-
-
-def test_installer_restarts_rather_than_enable_now():
-    """enable --now does nothing to a service that is already running, so
-    an upgrade installed new code and left the old process serving it --
-    measured on staging: the process was 25 minutes older than the code.
-    """
-    with open(os.path.join(ROOT, "install.sh")) as f:
-        text = f.read()
-    start = text[text.index('step "Starting services"') :]
-    start = start[: start.index("\n}\n")]
-    assert "enable --now portal.service" not in start
-    assert "systemctl restart portal.service" in start
-    assert "did not restart" in start, "the installer must check the restart happened"

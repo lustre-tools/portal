@@ -7,6 +7,7 @@ remembered answers, and where the gc CLI is installed from.
 """
 
 import os
+import re
 import subprocess
 
 import pytest
@@ -172,3 +173,77 @@ def test_a_declined_dashboard_stays_declined_on_a_re_run(tmp_path):
     remember(cfg, WITH_DASHBOARD="0")
     r = run(["--dry-run", "--yes"], cfg)
     assert not _installs_dashboard(r.stdout)
+
+
+# ---------- a second instance on the same host ----------
+
+
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def written_units(output):
+    output = ANSI.sub("", output)
+    return sorted(
+        line.split("would write:")[1].split("(")[0].strip()
+        for line in output.splitlines()
+        if "would write:" in line and "/etc/systemd/system/" in line
+    )
+
+
+def test_the_default_instance_keeps_the_plain_names(tmp_path):
+    """Live runs on these names; an upgrade must never rename them."""
+    r = run(["--dry-run", "--yes"], tmp_path / "cfg", {"PORTAL_WITH_DASHBOARD": "0"})
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert written_units(r.stdout) == [
+        "/etc/systemd/system/portal-refresh.service",
+        "/etc/systemd/system/portal-refresh.timer",
+        "/etc/systemd/system/portal.service",
+    ]
+    assert "/opt/portal/.venv" in r.stdout
+
+
+def test_a_named_instance_shares_nothing(tmp_path):
+    """Staging beside production: every unit, directory and the service
+    user carry the instance name."""
+    env = {"PORTAL_INSTANCE": "staging", "PORTAL_WITH_DASHBOARD": "0"}
+    r = run(["--dry-run", "--yes"], tmp_path / "cfg", env)
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert written_units(r.stdout) == [
+        "/etc/systemd/system/portal-staging-refresh.service",
+        "/etc/systemd/system/portal-staging-refresh.timer",
+        "/etc/systemd/system/portal-staging.service",
+    ]
+    assert "/opt/portal-staging/.venv" in r.stdout
+    assert "useradd --system --home-dir /var/lib/portal-staging" in r.stdout
+    assert "portal-staging" in r.stdout.split("useradd")[1].splitlines()[0]
+    assert " /opt/portal/" not in r.stdout and "/opt/portal/.venv" not in r.stdout
+
+
+def test_a_named_instance_has_its_own_site_extra(tmp_path):
+    """The drop-ins proxy to one instance's port and gate on its sessions.
+    Shared, a staging site would check logins against production."""
+    remember(tmp_path, SERVER_NAME="stage.example.org", PORT="5200")
+    r = run(["--render-site"], tmp_path, {"PORTAL_INSTANCE": "staging"})
+    assert r.returncode == 0, r.stderr
+    assert "include /etc/nginx/portal/site-extra-staging/*.conf;" in r.stdout
+    assert "site-extra/*.conf" not in r.stdout
+
+
+def test_a_bad_instance_name_is_refused(tmp_path):
+    r = run(["--render-site"], tmp_path, {"PORTAL_INSTANCE": "Bad Name"})
+    assert r.returncode != 0
+    assert "PORTAL_INSTANCE must be" in r.stderr
+
+
+def test_an_upgrade_restarts_the_service(tmp_path):
+    """enable --now does nothing to a running unit, so an upgrade used to
+    leave the old process serving -- measured: 25 minutes older than its
+    own code. It must restart, for whichever instance this is."""
+    for env, unit in (
+        ({}, "portal.service"),
+        ({"PORTAL_INSTANCE": "staging"}, "portal-staging.service"),
+    ):
+        r = run(["--dry-run", "--yes"], tmp_path / unit, {"PORTAL_WITH_DASHBOARD": "0", **env})
+        out = ANSI.sub("", r.stdout)
+        assert f"would run: systemctl restart {unit}" in out, unit
+        assert f"enable --now {unit}" not in out

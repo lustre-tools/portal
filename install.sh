@@ -27,9 +27,24 @@ DEV=0
 ACTION=install
 ASSUME_YES=0
 
+# An optional instance name runs a second, fully separate portal on the
+# same host -- staging beside production, say. Unset: the names below
+# are the plain ones ("portal"). PORTAL_INSTANCE=staging: every name
+# gets "-staging" -- directories, service user, systemd units, nginx
+# site and its site-extra directory -- so nothing is shared. It picks
+# the config directory, so it cannot itself be remembered: pass it on
+# every run for a named instance.
+INSTANCE="${PORTAL_INSTANCE:-}"
+case "$INSTANCE" in
+    "") ;;
+    *[!a-z0-9-]*|-*) echo "error: PORTAL_INSTANCE must be lowercase letters, digits and dashes" >&2; exit 1 ;;
+esac
+SUFFIX="${INSTANCE:+-$INSTANCE}"
+NAME="portal$SUFFIX"
+
 # Answers from the previous run. Read, never sourced: it is plain
 # KEY="value" lines, and nothing in it should be able to run code.
-INSTALL_CONF="${PORTAL_CONFIG_DIR:-/etc/portal}/install.conf"
+INSTALL_CONF="${PORTAL_CONFIG_DIR:-/etc/$NAME}/install.conf"
 saved() {
     [ -r "$INSTALL_CONF" ] || return 0
     sed -n "s/^$1=\"\(.*\)\"\$/\1/p" "$INSTALL_CONF" | tail -1
@@ -45,11 +60,11 @@ pick() {
 # default, so a plain re-run rebuilt the nginx site with the hostname
 # from `hostname -f` -- enough to take a live site offline. Precedence
 # is now: explicit environment, then the last run's answer, then default.
-APP_DIR=$(pick "${PORTAL_APP_DIR:-}" APP_DIR /opt/portal)
-DATA_DIR=$(pick "${PORTAL_DATA_DIR:-}" DATA_DIR /var/lib/portal)
-CONFIG_DIR="${PORTAL_CONFIG_DIR:-/etc/portal}"
+APP_DIR=$(pick "${PORTAL_APP_DIR:-}" APP_DIR "/opt/$NAME")
+DATA_DIR=$(pick "${PORTAL_DATA_DIR:-}" DATA_DIR "/var/lib/$NAME")
+CONFIG_DIR="${PORTAL_CONFIG_DIR:-/etc/$NAME}"
 LOG_DIR=$(pick "${PORTAL_LOG_DIR:-}" LOG_DIR /var/log/nginx)
-SVC_USER=$(pick "${PORTAL_USER:-}" SVC_USER portal)
+SVC_USER=$(pick "${PORTAL_USER:-}" SVC_USER "$NAME")
 PORT=$(pick "${PORTAL_BIND_PORT:-}" PORT 5000)
 DASH_PORT=$(pick "${PORTAL_DASH_PORT:-}" DASH_PORT 5056)
 SERVER_NAME=$(pick "${PORTAL_SERVER_NAME:-}" SERVER_NAME "")
@@ -68,6 +83,7 @@ ACME_ROOT=$(pick "${PORTAL_ACME_ROOT:-}" ACME_ROOT "")
 NGINX_SITE_DIR=""
 NGINX_ENABLE_DIR=""
 NGINX_SNIPPET_DIR=""
+SITE_EXTRA_DIR=""
 ZONE_ID=""
 
 ok()   { printf '%s✓%s %s\n' "$GREEN" "$NC" "$*"; }
@@ -180,6 +196,9 @@ detect_nginx_layout() {
     # includes on its own. Putting them in conf.d would apply their
     # add_header and proxy_set_header lines to every site on the host.
     NGINX_SNIPPET_DIR=/etc/nginx/portal
+    # Per instance: each site's drop-ins proxy to its own portal port and
+    # gate on its own sessions, so two instances must never share them.
+    SITE_EXTRA_DIR="$NGINX_SNIPPET_DIR/site-extra$SUFFIX"
     return 0
 }
 
@@ -201,6 +220,7 @@ render() {
         -e "s|@ACME_ROOT@|$ACME_ROOT|g" \
         -e "s|@SNIPPET_DIR@|$NGINX_SNIPPET_DIR|g" \
         -e "s|@ZONE_ID@|$ZONE_ID|g" \
+        -e "s|@SITE_EXTRA@|$SITE_EXTRA_DIR|g" \
         "$1"
 }
 
@@ -266,6 +286,7 @@ save_answers() {
 do_render_site() {
     PYTHON=$(find_python) || die "Python 3.11 or newer is required."
     NGINX_SNIPPET_DIR=/etc/nginx/portal
+    SITE_EXTRA_DIR="$NGINX_SNIPPET_DIR/site-extra$SUFFIX"
     [ -n "$SERVER_NAME" ] || die "No hostname: set PORTAL_SERVER_NAME, or run a full install first."
     case "$WANT_DASHBOARD" in 1|yes|true) WITH_DASHBOARD=1 ;; esac
     site_defaults
@@ -283,6 +304,14 @@ do_install() {
 
     if [ "$DEV" = 0 ] && [ "$(id -u)" != 0 ] && [ "$DRY_RUN" = 0 ]; then
         die "A system install needs root. Use sudo, or --dev for a local venv."
+    fi
+
+    # Two instances on one host must not share a port. Refuse before
+    # anything is written, unless it is this instance holding it.
+    if [ "$DEV" = 0 ] && [ "$DRY_RUN" = 0 ] && command -v ss >/dev/null 2>&1 \
+        && ss -ltnH "sport = :$PORT" | grep -q . \
+        && ! systemctl is-active --quiet "$NAME.service"; then
+        die "Port $PORT is already in use by something other than $NAME.service. Pick another with PORTAL_BIND_PORT."
     fi
 
     if [ -n "$TOOLS_DIR" ]; then
@@ -479,11 +508,11 @@ EOF
 
     # ---- systemd
     step "Installing systemd units"
-    render "$SCRIPT_DIR/deploy/portal.service.in" | write_file /etc/systemd/system/portal.service 644
-    render "$SCRIPT_DIR/deploy/portal-refresh.service.in" | write_file /etc/systemd/system/portal-refresh.service 644
-    write_file /etc/systemd/system/portal-refresh.timer 644 < "$SCRIPT_DIR/deploy/portal-refresh.timer"
+    render "$SCRIPT_DIR/deploy/portal.service.in" | write_file "/etc/systemd/system/$NAME.service" 644
+    render "$SCRIPT_DIR/deploy/portal-refresh.service.in" | write_file "/etc/systemd/system/$NAME-refresh.service" 644
+    write_file "/etc/systemd/system/$NAME-refresh.timer" 644 < "$SCRIPT_DIR/deploy/portal-refresh.timer"
     if [ "$WITH_DASHBOARD" = 1 ]; then
-        render "$SCRIPT_DIR/deploy/gerrit-dashboard.service.in" | write_file /etc/systemd/system/portal-dashboard.service 644
+        render "$SCRIPT_DIR/deploy/gerrit-dashboard.service.in" | write_file "/etc/systemd/system/$NAME-dashboard.service" 644
     fi
     run systemctl daemon-reload
     ok "units installed"
@@ -497,11 +526,11 @@ EOF
         ask TLS_KEY  "TLS private key" "$TLS_KEY"
         ask ACME_ROOT "ACME webroot (for certificate renewal)" "$ACME_ROOT"
 
-        run install -d -m 755 "$NGINX_SNIPPET_DIR/site-extra"
+        run install -d -m 755 "$SITE_EXTRA_DIR"
         write_file "$NGINX_SNIPPET_DIR/portal-proxy.conf" 644   < "$SCRIPT_DIR/deploy/portal-proxy.conf"
         write_file "$NGINX_SNIPPET_DIR/portal-headers.conf" 644 < "$SCRIPT_DIR/deploy/portal-headers.conf"
 
-        local site="$NGINX_SITE_DIR/portal.conf"
+        local site="$NGINX_SITE_DIR/$NAME.conf"
         render_site | write_file "$site" 644
 
         # Behind this nginx, the app must trust exactly one proxy hop, or
@@ -512,7 +541,7 @@ EOF
 
         if [ -n "$NGINX_ENABLE_DIR" ]; then
             run install -d -m 755 "$NGINX_ENABLE_DIR"
-            run ln -sf "$site" "$NGINX_ENABLE_DIR/portal.conf"
+            run ln -sf "$site" "$NGINX_ENABLE_DIR/$NAME.conf"
         fi
 
         if [ "$DRY_RUN" = 0 ]; then
@@ -540,27 +569,27 @@ EOF
     # as running.
     local started
     started=$(date +%s)
-    run systemctl enable portal.service portal-refresh.timer
-    run systemctl restart portal.service
-    run systemctl restart portal-refresh.timer
+    run systemctl enable "$NAME.service" "$NAME-refresh.timer"
+    run systemctl restart "$NAME.service"
+    run systemctl restart "$NAME-refresh.timer"
     if [ "$WITH_DASHBOARD" = 1 ]; then
-        run systemctl enable portal-dashboard.service
-        run systemctl restart portal-dashboard.service
+        run systemctl enable "$NAME-dashboard.service"
+        run systemctl restart "$NAME-dashboard.service"
     fi
 
     if [ "$DRY_RUN" = 0 ]; then
         sleep 2
-        if ! systemctl is-active --quiet portal.service; then
-            die "portal.service failed to start. journalctl -u portal.service -n 50"
+        if ! systemctl is-active --quiet "$NAME.service"; then
+            die "$NAME.service failed to start. journalctl -u $NAME.service -n 50"
         fi
         # Prove the process is the one just started, not a survivor.
         local since
-        since=$(systemctl show -p ActiveEnterTimestampMonotonic --value portal.service)
+        since=$(systemctl show -p ActiveEnterTimestampMonotonic --value "$NAME.service")
         local up_for=$(( $(cut -d. -f1 /proc/uptime) - since / 1000000 ))
         if [ "$up_for" -gt $(( $(date +%s) - started + 5 )) ]; then
-            die "portal.service is running, but it did not restart -- it is still serving the old code"
+            die "$NAME.service is running, but it did not restart -- it is still serving the old code"
         fi
-        ok "portal.service is running the code just installed"
+        ok "$NAME.service is running the code just installed"
     fi
 
     save_answers
@@ -570,13 +599,13 @@ EOF
     echo "  Config:   $ENV_FILE"
     echo "  Data:     $DATA_DIR"
     echo "  Accounts: $VENV/bin/portal-users list"
-    echo "  Logs:     journalctl -u portal.service -f"
+    echo "  Logs:     journalctl -u $NAME.service -f"
 }
 
 do_uninstall() {
     [ "$(id -u)" = 0 ] || die "Uninstalling needs root."
     step "Stopping services"
-    for unit in portal.service portal-refresh.timer portal-refresh.service portal-dashboard.service; do
+    for unit in "$NAME.service" "$NAME-refresh.timer" "$NAME-refresh.service" "$NAME-dashboard.service"; do
         run systemctl disable --now "$unit" 2>/dev/null || true
         run rm -f "/etc/systemd/system/$unit"
     done
@@ -584,8 +613,8 @@ do_uninstall() {
 
     step "Removing the nginx site"
     if detect_nginx_layout; then
-        run rm -f "$NGINX_SITE_DIR/portal.conf"
-        [ -n "$NGINX_ENABLE_DIR" ] && run rm -f "$NGINX_ENABLE_DIR/portal.conf"
+        run rm -f "$NGINX_SITE_DIR/$NAME.conf"
+        [ -n "$NGINX_ENABLE_DIR" ] && run rm -f "$NGINX_ENABLE_DIR/$NAME.conf"
         run rm -rf "$NGINX_SNIPPET_DIR"
         if nginx -t >/dev/null 2>&1; then run systemctl reload nginx; fi
     fi

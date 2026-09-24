@@ -103,7 +103,7 @@ server {
     #
     # Kept OUT of the portal's own template so an upgrade never fights
     # your local additions.
-    include @SNIPPET_DIR@/site-extra/*.conf;
+    include @SITE_EXTRA@/*.conf;
 
     # --- the app --------------------------------------------------------
     location / {
