@@ -8,7 +8,13 @@ import urllib.request
 
 from flask import current_app
 
-from portal.graph_store import add_entry, delete_entry, transfer_schedule
+from portal.graph_store import (
+    add_entry,
+    delete_entry,
+    get_entry,
+    is_internal_entry,
+    transfer_schedule,
+)
 from portal.tools.registry import ToolDefinition, ToolParam, register_tool
 
 logger = logging.getLogger(__name__)
@@ -266,6 +272,26 @@ def _do_run(params, socketio, room, kind, positional, file_id):
         prefix = re.escape(current_app.config["TICKET_PREFIX"])
         ticket_match = re.match(rf"({prefix}-\d+)", subject)
         ticket = ticket_match.group(1) if ticket_match else ""
+
+    # A run that does not mention the name or the labels keeps the ones the
+    # graph already has. The page always sends both fields, so clearing
+    # them there still works; this is for callers that pass little more
+    # than a change number -- a script, a one-off -- which used to wipe a
+    # graph's labels and reset its name to the commit subject.
+    existing = get_entry(current_app.config["GRAPH_OUTPUT_DIR"], file_id)
+    # Only from a graph the caller may see: a ticket graph is classified
+    # after the run, so without this a public caller naming an internal
+    # ticket would have its labels echoed into their console.
+    if existing and (internal_access or not is_internal_entry(existing, public_project)):
+        params = dict(params)
+        if "name" not in params:
+            kept = (existing.get("params") or {}).get("name") or ""
+            if not kept and existing.get("name") != existing.get("subject"):
+                kept = existing.get("name") or ""
+            if kept:
+                params["name"] = kept
+        if "labels" not in params:
+            params["labels"] = ", ".join(existing.get("labels") or [])
 
     # Use custom name if provided; otherwise the commit subject, falling back
     # to the ticket id for ticket-mode graphs (subject is filled in post-run).

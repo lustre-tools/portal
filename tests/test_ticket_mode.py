@@ -376,3 +376,45 @@ def test_sanitizer_leaves_ordinary_text_alone():
 
     line = "Building graph for LU-12187: 48 merged, 19 chains\n"
     assert _sanitize_output(line, ("/var/lib/portal",)) == line
+
+
+# ---------- a run that omits name / labels ----------
+
+
+def _run(app, params):
+    sock = FakeSocket()
+    with app.app_context():
+        gc_graph.run_gc_graph(params, sock, "room1")
+    return sock
+
+
+def test_a_run_without_name_or_labels_keeps_the_graphs_own(app, graph_dir, fake_gen):
+    """A script passing just the id used to wipe the labels and reset the
+    name to the subject -- it happened to a live graph."""
+    add_entry(
+        graph_dir,
+        "LU-19921",
+        name="My series",
+        labels=["2.18", "ec"],
+        params={"change_number": "LU-19921", "name": "My series", "labels": "2.18, ec"},
+    )
+    _run(app, {"change_number": "LU-19921", "_internal_access": False})
+    e = get_entry(graph_dir, "LU-19921")
+    assert e["name"] == "My series"
+    assert e["labels"] == ["2.18", "ec"]
+    assert e["params"]["labels"] == "2.18, ec", "and later reruns carry them too"
+
+
+def test_explicit_empty_fields_still_clear_them(app, graph_dir, fake_gen):
+    """The page always sends both fields; emptying them must still work."""
+    add_entry(graph_dir, "LU-19921", name="My series", labels=["2.18"])
+    _run(app, {"change_number": "LU-19921", "_internal_access": False, "name": "", "labels": ""})
+    e = get_entry(graph_dir, "LU-19921")
+    assert e["labels"] == []
+    assert e["name"] != "My series"
+
+
+def test_an_internal_graphs_labels_are_not_borrowed_by_a_public_run(app, graph_dir, fake_gen):
+    add_entry(graph_dir, "LU-19921", labels=["secret-label"], project="internal/example-project")
+    sock = _run(app, {"change_number": "LU-19921", "_internal_access": False})
+    assert "secret-label" not in sock.output()
