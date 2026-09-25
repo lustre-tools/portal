@@ -247,3 +247,50 @@ def test_an_upgrade_restarts_the_service(tmp_path):
         out = ANSI.sub("", r.stdout)
         assert f"would run: systemctl restart {unit}" in out, unit
         assert f"enable --now {unit}" not in out
+
+
+# ---------- the refresh timer and the stats backfill ----------
+
+
+def _install(tmp_path, **env):
+    r = run(["--dry-run", "--yes"], tmp_path, {"PORTAL_WITH_DASHBOARD": "0", **env})
+    assert r.returncode == 0, r.stderr[-2000:]
+    return ANSI.sub("", r.stdout)
+
+
+def test_the_refresh_timer_is_on_by_default(tmp_path):
+    out = _install(tmp_path)
+    assert "would run: systemctl enable portal-refresh.timer" in out
+    assert "would run: systemctl restart portal-refresh.timer" in out
+
+
+def test_the_refresh_timer_can_be_left_off_and_that_is_remembered(tmp_path):
+    """A staging copy beside production must not regenerate every graph a
+    second time. The installer used to switch the timer back on at every
+    upgrade, however often it was disabled."""
+    out = _install(tmp_path, PORTAL_INSTANCE="staging", PORTAL_REFRESH_TIMER="0")
+    assert "would run: systemctl disable --now portal-staging-refresh.timer" in out
+    assert "systemctl enable portal-staging-refresh.timer" not in out
+    assert "restart portal-staging-refresh.timer" not in out
+
+    # What --dry-run would have remembered; a plain re-run must honour it.
+    remember(tmp_path, REFRESH_TIMER="0")
+    out = _install(tmp_path, PORTAL_INSTANCE="staging")
+    assert "restart portal-staging-refresh.timer" not in out
+
+
+def test_a_bad_refresh_timer_value_is_refused(tmp_path):
+    r = run(["--dry-run", "--yes"], tmp_path, {"PORTAL_REFRESH_TIMER": "sometimes"})
+    assert r.returncode != 0
+    assert "PORTAL_REFRESH_TIMER" in r.stderr
+
+
+def test_an_install_backfills_stats_as_the_service_user(tmp_path):
+    """New figures would otherwise stay empty for every existing graph
+    until it happened to be regenerated."""
+    out = _install(tmp_path, PORTAL_INSTANCE="staging")
+    line = next((x for x in out.splitlines() if "portal-refresh --backfill" in x), "")
+    assert "would run: systemd-run" in line, out[-3000:]
+    assert "User=portal-staging" in line
+    assert "ReadWritePaths=/var/lib/portal-staging" in line
+    assert "EnvironmentFile=" in line and "/portal.env" in line

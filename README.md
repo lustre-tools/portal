@@ -178,6 +178,25 @@ sudo ./install.sh --yes      # reuses every remembered answer, then restarts
 `./install.sh --render-site | diff - /etc/nginx/sites-available/portal.conf`
 shows what an upgrade would change in the site before you run it.
 
+An install also reads any figures a new version shows from the graphs
+already on disk (`portal-refresh --backfill`), so existing graphs do not
+need regenerating to show them.
+
+### A second instance beside the first
+
+`PORTAL_INSTANCE=staging` gives every name a `-staging` suffix --
+directories, service user, units, nginx site -- so a staging copy shares
+nothing with production. Pass it on every run; it picks which remembered
+answers apply. A copy like that usually should not regenerate graphs on
+its own schedule as well, doubling the load on Gerrit:
+
+```bash
+sudo PORTAL_INSTANCE=staging PORTAL_REFRESH_TIMER=0 ./install.sh
+```
+
+The timer choice is remembered like the rest; `PORTAL_REFRESH_TIMER=1`
+turns it back on.
+
 ### Using your own llm_code_and_review_tools checkout
 
 By default the graphs come from the copy bundled in `vendor/llm_tools`,

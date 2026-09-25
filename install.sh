@@ -16,6 +16,9 @@
 # default. PORTAL_TOOLS_DIR=/path/to/llm_code_and_review_tools installs
 # them from a checkout you manage yourself instead; PORTAL_TOOLS_DIR=bundled
 # switches back.
+#
+# PORTAL_INSTANCE=<name> installs a second, separate portal beside the
+# first; PORTAL_REFRESH_TIMER=0 leaves its scheduled refresh off.
 
 set -euo pipefail
 
@@ -71,6 +74,25 @@ SERVER_NAME=$(pick "${PORTAL_SERVER_NAME:-}" SERVER_NAME "")
 WANT_DASHBOARD=$(pick "${PORTAL_WITH_DASHBOARD:-}" WITH_DASHBOARD ask)
 TOOLS_DIR=$(pick "${PORTAL_TOOLS_DIR:-}" TOOLS_DIR "")
 [ "$TOOLS_DIR" = bundled ] && TOOLS_DIR=""
+# The scheduled-refresh timer. A staging copy beside production usually
+# wants it off, or every graph is regenerated twice against Gerrit.
+# PORTAL_REFRESH_TIMER=0 keeps it installed but disabled, and is
+# remembered. With no answer yet, a timer an operator has already
+# disabled by hand stays disabled: an upgrade used to switch it back on.
+REFRESH_TIMER=$(pick "${PORTAL_REFRESH_TIMER:-}" REFRESH_TIMER auto)
+if [ "$REFRESH_TIMER" = auto ]; then
+    REFRESH_TIMER=1
+    if command -v systemctl >/dev/null 2>&1 \
+        && [ -e "/etc/systemd/system/$NAME-refresh.timer" ] \
+        && [ "$(systemctl is-enabled "$NAME-refresh.timer" 2>/dev/null)" = disabled ]; then
+        REFRESH_TIMER=0
+    fi
+fi
+case "$REFRESH_TIMER" in
+    1|yes|true) REFRESH_TIMER=1 ;;
+    0|no|false) REFRESH_TIMER=0 ;;
+    *) echo "error: PORTAL_REFRESH_TIMER must be 1 or 0" >&2; exit 1 ;;
+esac
 WITH_DASHBOARD=0
 
 # Filled in later, but declared here because render() substitutes all of
@@ -270,7 +292,7 @@ save_answers() {
         echo "# The answers a re-run reuses. An environment variable overrides any"
         echo "# of them for one run; edit here to change one for good."
         for k in APP_DIR DATA_DIR LOG_DIR SVC_USER PORT DASH_PORT SERVER_NAME \
-                 ACME_ROOT WITH_DASHBOARD TOOLS_DIR; do
+                 ACME_ROOT WITH_DASHBOARD TOOLS_DIR REFRESH_TIMER; do
             printf '%s="%s"\n' "$k" "${!k}"
         done
         # Only a customised certificate path is remembered. The default is
@@ -569,9 +591,15 @@ EOF
     # as running.
     local started
     started=$(date +%s)
-    run systemctl enable "$NAME.service" "$NAME-refresh.timer"
+    run systemctl enable "$NAME.service"
     run systemctl restart "$NAME.service"
-    run systemctl restart "$NAME-refresh.timer"
+    if [ "$REFRESH_TIMER" = 1 ]; then
+        run systemctl enable "$NAME-refresh.timer"
+        run systemctl restart "$NAME-refresh.timer"
+    else
+        run systemctl disable --now "$NAME-refresh.timer" 2>/dev/null || true
+        ok "scheduled refresh left off (PORTAL_REFRESH_TIMER=1 turns it on)"
+    fi
     if [ "$WITH_DASHBOARD" = 1 ]; then
         run systemctl enable "$NAME-dashboard.service"
         run systemctl restart "$NAME-dashboard.service"
@@ -590,6 +618,22 @@ EOF
             die "$NAME.service is running, but it did not restart -- it is still serving the old code"
         fi
         ok "$NAME.service is running the code just installed"
+    fi
+
+    # A new version may show figures older graphs do not have in the
+    # index yet. Read them from the graph files already on disk --
+    # nothing is regenerated and Gerrit is not asked. Run as the service
+    # user, with its configuration and its sandbox, like the timer does.
+    step "Reading stats from the graphs already generated"
+    if run systemd-run --quiet --wait --pipe --collect \
+            -p User="$SVC_USER" -p Group="$SVC_USER" \
+            -p EnvironmentFile="$ENV_FILE" -p WorkingDirectory="$APP_DIR" \
+            -p ProtectSystem=strict -p ReadWritePaths="$DATA_DIR" \
+            "$VENV/bin/portal-refresh" --backfill; then
+        ok "graph stats up to date"
+    else
+        warn "could not read stats from the existing graphs; they fill in on each graph's next regeneration."
+        echo "    To retry: re-run this installer"
     fi
 
     save_answers
