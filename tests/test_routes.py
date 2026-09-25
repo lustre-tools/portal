@@ -332,3 +332,19 @@ def test_authcheck_works_for_an_arbitrary_role(client, login_admin):
     login_admin()
     assert client.get("/_authcheck?role=nonexistent-role").status_code == 401
     assert client.get("/_authcheck?role=admin").status_code == 200
+
+
+def test_static_urls_carry_a_content_hash(client, app):
+    """A deploy that changes the stylesheet must change its URL, or
+    browsers keep the cached copy and show new pages with old styles."""
+    import hashlib
+    import os
+    import re
+
+    body = client.get("/gerrit_vis/").data.decode()
+    m = re.search(r'href="/static/style\.css\?v=([0-9a-f]{10})"', body)
+    assert m, "the stylesheet link carries no version"
+    with open(os.path.join(app.static_folder, "style.css"), "rb") as f:
+        assert m.group(1) == hashlib.sha256(f.read()).hexdigest()[:10]
+    # And the versioned URL is still served.
+    assert client.get(f"/static/style.css?v={m.group(1)}").status_code == 200

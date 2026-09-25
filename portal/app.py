@@ -1,5 +1,9 @@
 """Application factory."""
 
+import functools
+import hashlib
+import os
+
 from flask import Flask, jsonify, redirect, render_template, request, url_for
 from flask_socketio import SocketIO
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -8,6 +12,17 @@ from portal.config import build_config
 from portal.csrf import init_csrf
 
 socketio = SocketIO()
+
+
+@functools.cache
+def _asset_version(static_folder, filename):
+    """A short hash of one static file, computed once per process -- the
+    files only change with a deploy, and a deploy restarts the service."""
+    try:
+        with open(os.path.join(static_folder, filename), "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()[:10]
+    except OSError:
+        return None
 
 
 def create_app(overrides=None, testing=False):
@@ -41,6 +56,18 @@ def create_app(overrides=None, testing=False):
     )
 
     init_csrf(app)
+
+    # Every static URL carries a hash of the file's content, so a deploy
+    # that changes the stylesheet or a script changes its URL, and no
+    # browser keeps using the copy it cached from the previous version.
+    # Without it, a visitor saw the new page with the old stylesheet
+    # until they forced a reload.
+    @app.url_defaults
+    def _versioned_static(endpoint, values):
+        if endpoint == "static" and "filename" in values:
+            version = _asset_version(app.static_folder, values["filename"])
+            if version:
+                values.setdefault("v", version)
 
     from portal.auth import register_auth_routes
     from portal.blueprints.gerrit_vis import (
