@@ -126,7 +126,7 @@
                             <p class="stat-note">most {{ v.ps_max }}</p>
                         </section>
                         <section class="stat-card">
-                            <h3>Oldest open</h3>
+                            <h3>Oldest in-flight</h3>
                             <p class="stat-big">{{ v.oldest_open.age if v.oldest_open else missing }}</p>
                             <p class="stat-note">{{ patch_link(v.oldest_open) }}</p>
                         </section>

@@ -451,3 +451,9 @@ def test_row_endpoint_shows_internal_entries_to_insiders(client, login_internal,
     add_entry(graph_dir, "100", project="internal/example-project")
     login_internal()
     assert client.get("/gerrit_vis/row/100").status_code == 200
+
+
+def test_the_oldest_patch_still_in_review_is_called_in_flight(client, graph_dir):
+    add_entry(graph_dir, "100", name="Series", summary=sample_summary())
+    page = client.get("/gerrit_vis/").data.decode()
+    assert "Oldest in-flight" in page and "Oldest open" not in page
