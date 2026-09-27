@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% from "promises/_macros.html" import counts_line, status_chip, location, who, repeats with context %}
+{% block title %}Gerrit Promises - {{ site_name }}{% endblock %}
+{% block container_class %}container-wide{% endblock %}
+{% block nav_active_promises %}nav-active{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div class="page-title">
+        <h1>Gerrit Promises <span class="beta-tag">alpha</span></h1>
+        <p class="page-sub">Promises made in code review &mdash; &ldquo;will fix in a follow-up&rdquo; &mdash; and whether they were kept</p>
+    </div>
+    <div class="accordion-header-buttons">
+        <button type="button" class="btn btn-ghost" onclick="window.location.reload()" title="Reload the list">Reload</button>
+    </div>
+</div>
+
+{% if msg %}<div class="flash flash-error">{{ msg }}</div>{% endif %}
+{% if info %}<div class="flash flash-success">{{ info }}</div>{% endif %}
+<div id="job-banner" class="job-banner" hidden></div>
+
+{% if authenticated %}
+<form class="track-form" method="post" action="{{ url_for('promises.track') }}">
+    {{ csrf_field() }}
+    <input type="text" name="change" class="search-input" placeholder="Track a change: number or Gerrit URL" autocomplete="off" required>
+    <button type="submit" class="btn btn-soft-primary">Track</button>
+</form>
+<p class="track-note">Tracking reads the change's threads and looks for follow-ups &mdash; free, and done in a minute. Finding and checking the promises runs Claude, which {% if is_admin %}you start{% else %}an admin starts{% endif %} from the change's page.</p>
+{% endif %}
+
+<form class="search-form" method="GET" role="search">
+    <input type="search" name="q" placeholder="Search by change, subject, person or promise" value="{{ query }}" class="search-input" aria-label="Search promises">
+    <input type="hidden" name="view" value="{{ view }}">
+    <button type="submit" class="btn">Search</button>
+    {% if query %}<a href="{{ url_for('promises.index', view=view) }}" class="btn btn-ghost">Clear</a>{% endif %}
+</form>
+
+{% if rows %}
+<section class="group-summary" aria-label="Totals">
+    <div class="gs-item gs-lead"><span class="gs-num">{{ rows|length }}</span><span class="gs-label">change{{ '' if rows|length == 1 else 's' }}</span></div>
+    <div class="gs-item"><span class="gs-num {{ 'pc-open' if totals.open else 'pc-zero' }}">{{ totals.open }}</span><span class="gs-label">open</span></div>
+    <div class="gs-item" title="Not done yet, but a follow-up change in review does it"><span class="gs-num {{ 'pc-review' if totals.followup else 'pc-zero' }}">{{ totals.followup }}</span><span class="gs-label">in flight</span></div>
+    <div class="gs-item"><span class="gs-num {{ 'pc-check' if totals.attention else 'pc-zero' }}">{{ totals.attention }}</span><span class="gs-label">to check</span></div>
+    <div class="gs-item"><span class="gs-num {{ 'pc-kept' if totals.addressed else 'pc-zero' }}">{{ totals.addressed }}</span><span class="gs-label">kept</span></div>
+    <div class="gs-item"><span class="gs-num">{{ totals.ignored }}</span><span class="gs-label">set aside</span></div>
+    {% if totals.resolved_open %}
+    <div class="gs-item" title="Open promises in threads someone marked resolved"><span class="gs-num pc-open">{{ totals.resolved_open }}</span><span class="gs-label">in resolved threads</span></div>
+    {% endif %}
+    {% if spend_month is not none %}
+    <p class="gs-note" title="Claude Code reports every call's price at API rates. On a subscription nothing is billed; the plan's usage limits scale with this figure.">Claude this month: ${{ '%.2f'|format(spend_month) }} at API prices (not billed on a subscription)</p>
+    {% endif %}
+</section>
+{% endif %}
+
+<nav class="view-tabs" aria-label="View">
+    <a href="{{ url_for('promises.index', view='changes', q=query or None) }}" class="{{ 'active' if view == 'changes' }}">Changes <span class="tcount">{{ rows|length }}</span></a>
+    <a href="{{ url_for('promises.index', view='open', q=query or None) }}" class="{{ 'active' if view == 'open' }}">Open promises <span class="tcount">{{ open_items|length }}</span></a>
+</nav>
+
+{% if view == 'open' %}
+    {% if open_items %}
+    <div class="table-card">
+    <table class="graph-table promise-list">
+        <thead><tr><th>Promise</th><th>Made by</th><th>Change</th><th>Where</th><th class="col-updated">Last activity</th></tr></thead>
+        <tbody>
+        {% for it in open_items %}
+        <tr>
+            <td class="col-name">
+                <a class="entry-name" href="{{ url_for('promises.change_page', number=it.change_number) }}#item-{{ it.tid }}">{{ it.summary }}</a>
+                <div class="entry-meta"><span class="mono">{{ it.item_id }}</span>{{ repeats(it) }}{% if it.resolved_but_open %}<span class="pflag" title="the thread is marked resolved">resolved thread</span>{% endif %}{% if it.severity %}<span class="sev sev-{{ it.severity }}">{{ it.severity }}</span>{% endif %}</div>
+            </td>
+            <td>{{ who(it) }}</td>
+            <td class="mono"><a href="{{ url_for('promises.change_page', number=it.change_number) }}">{{ it.change_number }}</a></td>
+            <td>{{ location(it) }}</td>
+            <td class="col-updated">{{ it.updated|promise_ago }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="empty-state">No open promises{% if query %} matching the search{% endif %}.</p>
+    {% endif %}
+{% else %}
+    {% if rows %}
+    <div class="table-card">
+    <table class="graph-table" id="graph-table">
+        <thead>
+            <tr>
+                <th class="col-toggle"><span class="visually-hidden">Details</span></th>
+                <th class="col-ticket">Ticket</th>
+                <th class="col-name">Change</th>
+                <th>Promises</th>
+                <th class="col-updated">Scanned</th>
+                <th class="col-open"><span class="visually-hidden">Actions</span></th>
+            </tr>
+        </thead>
+        {% for v in rows %}
+        {%- set ticket = v.own_ticket -%}
+        <tbody class="entry" id="g-{{ v.number }}" data-change="{{ v.number }}">
+            <tr class="entry-row">
+                <td class="col-toggle">
+                    <button type="button" class="row-toggle" aria-expanded="false" title="Show promises">
+                        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        <span class="visually-hidden">Promises of {{ v.number }}</span>
+                    </button>
+                </td>
+                <td class="col-ticket">{% if ticket %}<a href="{{ jira_url }}/browse/{{ ticket }}" target="_blank" rel="noopener">{{ ticket }}</a>{% else %}<span class="muted">&mdash;</span>{% endif %}</td>
+                <td class="col-name">
+                    <a class="entry-name" href="{{ url_for('promises.change_page', number=v.number) }}" title="{{ v.change.subject }}">{{ v.change.subject or '(not harvested yet)' }}</a>
+                    <div class="entry-meta">
+                        <a href="{{ gerrit_url }}/{{ v.number }}" target="_blank" rel="noopener">{{ v.number }}</a>
+                        {% if v.change.branch and v.change.branch != 'master' %}<span class="pchip">{{ v.change.branch }}</span>{% endif %}
+                        {% if v.change.status in ('MERGED', 'ABANDONED') %}<span class="pchip">{{ v.change.status|lower }}</span>{% endif %}
+                        {% if v.internal %}<span class="internal-badge" title="Internal project: {{ v.change.project }}">internal</span>{% endif %}
+                        {% if v.doc.added_by %}<span>added by {{ v.doc.added_by }}</span>{% endif %}
+                        <span class="jobchip"></span>
+                        {% if is_admin %}<form method="post" action="{{ url_for('promises.cancel_job', number=v.number) }}" class="inline-form job-cancel" hidden>{{ csrf_field() }}<button type="submit" class="btn btn-sm btn-danger-soft" title="Stop the running job; what finished is kept">Cancel</button></form>{% endif %}
+                    </div>
+                </td>
+                <td>{{ counts_line(v.counts, v.possible|length, v.classified_any) }}
+                    {% if v.resolved_open %}<span class="sub pc-open" title="open promises in threads someone marked resolved">{{ v.resolved_open }} in resolved threads</span>{% endif %}</td>
+                <td class="col-updated">{{ v.harvest.harvested_at|promise_ago }}</td>
+                <td class="col-open">
+                    <a href="{{ url_for('promises.change_page', number=v.number) }}" class="btn btn-sm btn-soft-primary">Promises</a>
+                    {% if authenticated %}
+                    <form method="post" action="{{ url_for('promises.rescan', number=v.number) }}" class="inline-form">{{ csrf_field() }}<button type="submit" class="btn btn-sm" title="Read the threads again and look for follow-ups (free)">Rescan</button></form>
+                    {% endif %}
+                </td>
+            </tr>
+            <tr class="entry-detail" hidden>
+                <td colspan="6">
+                    <div class="detail promise-detail">
+                        {% set shown = v.promises[:12] %}
+                        {% if shown %}
+                        <ul class="plist">
+                            {% for it in shown %}
+                            <li>
+                                {{ status_chip(it) }}
+                                <a href="{{ url_for('promises.change_page', number=v.number) }}#item-{{ it.tid }}" class="psum">{{ it.summary }}</a>
+                                {{ repeats(it) }}
+                                {{ who(it) }}
+                                {{ location(it) }}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        {% if v.promises|length > shown|length %}<p class="more"><a href="{{ url_for('promises.change_page', number=v.number) }}">all {{ v.promises|length }} on the change's page</a></p>{% endif %}
+                        {% elif v.possible %}
+                        <p class="muted">Not analysed yet. {{ v.possible|length }} thread{{ '' if v.possible|length == 1 else 's' }} use promise-like wording &mdash; <a href="{{ url_for('promises.change_page', number=v.number) }}#possible">see them</a>.</p>
+                        {% else %}
+                        <p class="muted">{% if v.classified_any %}No promises found.{% else %}Not analysed yet.{% endif %}</p>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+        </tbody>
+        {% endfor %}
+    </table>
+    </div>
+    {% else %}
+    <p class="empty-state">{% if query %}No tracked change matches the search.{% elif authenticated %}Nothing tracked yet. Track a change above.{% else %}Nothing tracked yet.{% endif %}</p>
+    {% endif %}
+{% endif %}
+
+<p class="footnote">Verdicts are AI output, checked against the code they cite &mdash; verify before acting on one.</p>
+
+<script>
+(function () {
+    // Expand a row. A click anywhere on it toggles, except on its links and buttons.
+    var table = document.getElementById("graph-table");
+    function toggle(tbody) {
+        var detail = tbody.querySelector(".entry-detail");
+        var open = detail.hidden;
+        detail.hidden = !open;
+        tbody.classList.toggle("is-open", open);
+        tbody.querySelector(".row-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+    }
+    if (table) {
+        table.addEventListener("click", function (ev) {
+            var row = ev.target.closest(".entry-row");
+            if (!row) return;
+            var btn = ev.target.closest(".row-toggle");
+            if (!btn && ev.target.closest("a, button, form, input")) return;
+            if (!btn && window.getSelection && String(window.getSelection())) return;
+            toggle(row.parentNode);
+        });
+    }
+    // Show running jobs; reload once they are all done.
+    var API = {{ url_for('promises.api_jobs')|tojson }};
+    var wasRunning = false;
+    function poll() {
+        fetch(API, {credentials: "same-origin"}).then(function (r) { return r.json(); }).then(function (jobs) {
+            var running = 0, lines = [];
+            Object.keys(jobs).forEach(function (num) {
+                var job = jobs[num];
+                var slot = document.querySelector('tbody[data-change="' + num + '"] .jobchip');
+                var stop = document.querySelector('tbody[data-change="' + num + '"] .job-cancel');
+                if (stop) stop.hidden = job.state !== "running" || !!job.cancelling;
+                if (job.state === "running") {
+                    running++;
+                    var text = job.name + ": " + (job.detail || job.phase || "");
+                    if (slot) slot.textContent = text; else lines.push(num + " " + text);
+                } else if (job.state === "error" && !slot) {
+                    lines.push(num + " " + job.name + " failed: " + (job.error || ""));
+                }
+            });
+            var banner = document.getElementById("job-banner");
+            if (running) lines.unshift(running + " job" + (running > 1 ? "s" : "") + " running; the page reloads when done");
+            banner.hidden = !lines.length;
+            banner.textContent = lines.join(" · ");
+            if (running) { wasRunning = true; setTimeout(poll, 4000); }
+            else if (wasRunning) { window.location.reload(); }
+        }).catch(function () { setTimeout(poll, 10000); });
+    }
+    poll();
+})();
+</script>
+{% endblock %}

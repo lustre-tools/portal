@@ -126,6 +126,39 @@ def _backfill(output_dir, ci_voters):
     return 0
 
 
+#: A tracked change's threads are read again once they are this old.
+PROMISES_RESCAN_AFTER_HOURS = 20
+
+
+def _rescan_promises(app):
+    """Re-read the threads of tracked Gerrit Promises changes, daily.
+
+    Free -- no Claude: it picks up new comments, and new or merged
+    follow-up changes, which is what turns a promise into "kept" without
+    anyone pressing a button. A failure on one change is logged and the
+    rest go on.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from portal.promises import jobs as promise_jobs
+    from portal.promises.store import Store
+
+    settings = promise_jobs.Settings.from_config(app.config)
+    store = Store(settings.root)
+    cutoff = (datetime.now(UTC) - timedelta(hours=PROMISES_RESCAN_AFTER_HOURS)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    for number in store.tracked_changes():
+        harvested = (store.load_change(number).get("harvest") or {}).get("harvested_at") or ""
+        if harvested >= cutoff:
+            continue
+        try:
+            promise_jobs.run_rescan(settings, store, number)
+            logger.info("[promises %s] rescanned", number)
+        except Exception:
+            logger.exception("[promises %s] rescan failed", number)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="portal-refresh",
@@ -157,6 +190,9 @@ def main(argv=None):
     output_dir = app.config["GRAPH_OUTPUT_DIR"]
     tz = app.config["TIMEZONE"]
     anchor = app.config["REFRESH_ANCHOR"]
+
+    if app.config.get("PROMISES_ENABLED") and not (args.backfill or args.dry_run):
+        _rescan_promises(app)
 
     if args.backfill:
         return _backfill(output_dir, app.config["CI_VOTERS"])

@@ -1,0 +1,385 @@
+{% extends "base.html" %}
+{% from "promises/_macros.html" import status_chip, location, who, repeats with context %}
+{% block title %}{{ v.number }} promises - {{ site_name }}{% endblock %}
+{% block container_class %}container-wide{% endblock %}
+{% block nav_active_promises %}nav-active{% endblock %}
+
+{% macro followup_link(f) -%}
+<a href="{{ gerrit_url }}/{{ f.number }}" target="_blank" rel="noopener" class="mono">{{ f.number }}</a>
+<span class="pst {{ 'pst-addressed' if f.status == 'MERGED' else ('pst-invalid' if f.status == 'ABANDONED' else 'pst-pending') }}">{{ (f.status or '?')|lower }}</span>
+<span class="fsub" title="{{ f.subject }}">{{ f.subject }}</span>
+{%- endmacro %}
+
+{% macro thread_messages(it) -%}
+<div class="pthread">
+    {% if it.root %}
+    <div class="pmsg"><div class="pmsg-meta"><b>{{ it.root.author }}</b> &middot; {{ (it.root.updated or '')[:16]|replace('T', ' ') }}{% if it.patch_set %} &middot; PS{{ it.patch_set }}{% endif %}{% if it.is_resolved %} &middot; resolved{% endif %}</div><div class="pmsg-text">{{ it.root.message }}</div></div>
+    {% endif %}
+    {% for r in it.replies %}
+    <div class="pmsg preply"><div class="pmsg-meta"><b>{{ r.author }}</b> &middot; {{ (r.updated or '')[:16]|replace('T', ' ') }}</div><div class="pmsg-text">{{ r.message }}</div></div>
+    {% endfor %}
+</div>
+{%- endmacro %}
+
+{% macro verdict(it) -%}
+{% set adj = it.adjudication %}
+{% if adj %}
+<div class="pverdict pv-{{ {'still-open': 'open', 'addressed': 'kept', 'invalid': 'notneeded'}.get(adj.verdict, 'unclear') }}">
+    <div class="pv-meta">
+        <span class="aichip">AI check</span>
+        <b>{{ {'still-open': 'Still open', 'addressed': 'Kept', 'invalid': 'Not needed'}.get(adj.verdict, 'Unclear') }}</b>
+        <span>PS{{ adj.judged_patchset }} vs master <span class="mono">{{ (adj.judged_master or '')[:10] }}</span></span>
+        <span>{{ (adj.judged_at or '')[:10] }}</span>
+        {% if adj.usd %}<span title="API price of this check as reported by Claude Code; not billed on a subscription">${{ '%.2f'|format(adj.usd) }}</span>{% endif %}
+    </div>
+    {% if it.stale_info %}<p class="pv-stale">Outdated: {{ it.stale_info }}. This verdict is from before.</p>{% endif %}
+    {% if adj.raw_error %}
+    <p class="pv-stale">The check failed.</p><pre class="pctx">{{ adj.raw_error }}</pre>
+    {% else %}
+    {% if adj.addressed_in %}<p class="pv-line"><b>Kept in</b> {{ adj.addressed_in.kind }} <span class="mono">{{ adj.addressed_in.ref or '' }}</span> &mdash; {{ adj.addressed_in.detail }}</p>{% endif %}
+    <p class="pv-evidence">{{ adj.evidence }}</p>
+    {% if adj.suggested_action %}<p class="pv-line"><b>Suggested action:</b> {{ adj.suggested_action }}
+        <button type="button" class="btn btn-sm btn-ghost copy-action" data-text="address item {{ it.item_id }}: {{ adj.suggested_action }}">Copy as prompt</button></p>{% endif %}
+    {% endif %}
+</div>
+{% elif it.origin == 'thread' %}
+<div class="pverdict pv-none"><span class="muted">Not checked against the code yet.</span></div>
+{% endif %}
+{%- endmacro %}
+
+{% macro item_card(it) %}
+<details class="pitem" id="item-{{ it.tid }}">
+    <summary>
+        <span class="caret" aria-hidden="true"></span>
+        <span class="pitem-main">
+            <span class="pitem-line1">{{ status_chip(it) }} <span class="psum">{{ it.summary }}</span></span>
+            <span class="pitem-line2">
+                {{ who(it) }}
+                {{ location(it) }}
+                {% if it.patch_set %}<span>PS{{ it.patch_set }}</span>{% endif %}
+                {% if it.severity %}<span class="sev sev-{{ it.severity }}" title="severity">{{ it.severity }}</span>{% endif %}
+                {% if it.resolved_but_open %}<span class="pflag" title="The thread is marked resolved, but the promise is still open">resolved thread</span>{% endif %}
+                {{ repeats(it) }}
+                {% if it.followup_in_review %}<span class="pchip pchip-review" title="a follow-up in review does it: {{ it.followup_in_review.subject }}">in flight: {{ it.followup_in_review.number }}</span>
+                {% elif it.followup %}<span class="pchip pchip-kept" title="follow-up linked by hand">linked: {{ it.followup.number }}</span>
+                {% elif it.kept_in_change %}<span class="pchip pchip-kept" title="the check found the promise kept in this change">kept in {{ it.kept_in_change }}</span>
+                {% elif it.candidates and not it.followups_ruled_out %}<span class="pchip" title="changes that may keep the promise, found in Gerrit; not confirmed">{{ it.candidates|length }} possible follow-up{{ '' if it.candidates|length == 1 else 's' }}</span>{% endif %}
+                {% if it.manual_status %}<span class="pchip" title="status decided by hand">decided</span>{% endif %}
+            </span>
+        </span>
+    </summary>
+    <div class="pbody">
+        {{ verdict(it) }}
+        {% if it.addressed_via_followup %}<p class="pv-line pc-kept">Kept: the linked follow-up {{ it.followup.number }} is merged.</p>{% endif %}
+        {% if it.followup_in_review %}
+        {% set f = it.followup_in_review %}
+        <div class="pfollowup-box">
+            <b>In flight:</b> {{ followup_link(f) }}
+            <span class="muted">{{ 'linked by hand' if f.reason != 'named by the check' else 'found by the check' }} &middot; turns into kept when it merges</span>
+        </div>
+        {% endif %}
+
+        {% if it.promise_quote %}
+        <blockquote class="pquote">&ldquo;{{ it.promise_quote }}&rdquo;{% if it.promised_by %}<cite>{{ it.promised_by }}{% if it.patch_set %}, PS{{ it.patch_set }}{% endif %}</cite>{% endif %}</blockquote>
+        {% endif %}
+
+        {% macro candidate_rows(list) %}
+            {% for c in list %}<li>{{ followup_link(c) }} <span class="muted">{{ c.reason }}</span>
+                {% if it.kept_in_change == c.number %}<span class="pchip pchip-kept">the check: kept here</span>{% endif %}
+                {% if is_admin and not (it.followup and it.followup.number == c.number) %}
+                <form method="post" action="{{ url_for('promises.override_item', number=v.number, tid=it.tid) }}" class="inline-form">{{ csrf_field() }}<input type="hidden" name="followup_change" value="{{ c.number }}"><button name="action" value="save" class="btn btn-sm btn-ghost" title="this change keeps the promise: link it">Link</button></form>
+                {% endif %}</li>{% endfor %}
+        {% endmacro %}
+        {% if it.followup %}
+        <div class="psection">
+            <h4>Follow-up</h4>
+            <ul class="plinks"><li>{{ followup_link(it.followup) }} <span class="muted">linked by hand{% if it.in_open_followup %} &middot; still in review{% endif %}</span></li></ul>
+        </div>
+        {% endif %}
+        {% if it.candidates %}
+        {% if it.followups_ruled_out %}
+        <details class="psection pfold">
+            <summary><h4>The check looked at {{ it.candidates|length }} possible follow-up{{ '' if it.candidates|length == 1 else 's' }} <span>&mdash; none keeps the promise</span></h4></summary>
+            <ul class="plinks">{{ candidate_rows(it.candidates) }}</ul>
+        </details>
+        {% else %}
+        <div class="psection">
+            <h4>Possible follow-ups <span>&mdash; found in Gerrit, not confirmed{% if not it.adjudication %}; the check will look at them{% endif %}</span></h4>
+            <ul class="plinks">{{ candidate_rows(it.candidates) }}</ul>
+        </div>
+        {% endif %}
+        {% endif %}
+
+        {% if it.duplicates %}
+        <div class="psection">
+            <h4>Also raised in {{ it.duplicates|length }} other thread{{ '' if it.duplicates|length == 1 else 's' }}{% if it.group_reason %} <span>&mdash; {{ it.group_reason }}</span>{% endif %}</h4>
+            {% for d in it.duplicates %}
+            <details class="pdup" id="item-{{ d.tid }}">
+                <summary>{{ location(d) }} <span class="muted">PS{{ d.patch_set }}</span> <span class="fsub">{{ (d.root or {}).get('author', '') }}: {{ ((d.root or {}).get('message', ''))[:140] }}</span></summary>
+                {{ thread_messages(d) }}
+                <div class="pactions">
+                    {% if d.gerrit_url %}<a href="{{ d.gerrit_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-ghost">{{ 'Comment' if '/comment/' in d.gerrit_url else 'Change' }} in Gerrit &#8599;</a>{% endif %}
+                    {% if is_admin %}
+                    <form method="post" action="{{ url_for('promises.override_item', number=v.number, tid=d.tid) }}" class="inline-form">{{ csrf_field() }}<button name="action" value="not_duplicate" class="btn btn-sm" title="This is a separate promise: take it out of the group">Not a duplicate</button></form>
+                    {% endif %}
+                </div>
+            </details>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if it.origin == 'thread' %}
+        <details class="psection pfold" {{ 'open' if not it.promise_quote }}>
+            <summary><h4>Thread <span>&middot; {{ 1 + it.replies|length }} message{{ '' if not it.replies else 's' }}</span></h4></summary>
+            {{ thread_messages(it) }}
+        </details>
+        {% if it.code_context %}
+        <details class="psection pfold">
+            <summary><h4>Code at the comment</h4></summary>
+            <pre class="pctx">{{ it.code_context }}</pre>
+        </details>
+        {% endif %}
+        {% elif it.note %}
+        <div class="pthread"><div class="pmsg"><div class="pmsg-text">{{ it.note }}</div></div></div>
+        {% endif %}
+
+        <div class="pactions">
+            {% if it.gerrit_url %}<a href="{{ it.gerrit_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-ghost">{{ 'Comment' if '/comment/' in it.gerrit_url else 'Change' }} in Gerrit &#8599;</a>{% endif %}
+            <span class="mono muted pid">{{ it.item_id }}</span>
+            {% if is_admin and it.origin == 'thread' and claude_ready and not v.judge_unsupported %}
+            <form method="post" action="{{ url_for('promises.judge_item', number=v.number, tid=it.tid) }}" class="inline-form">{{ csrf_field() }}<button type="submit" class="btn btn-sm btn-rerun" title="{{ 'Check this promise again' if it.adjudication else 'Check this promise against the code' }} (Claude)">{{ 'Check again' if it.adjudication else 'Check' }}</button></form>
+            {% endif %}
+            {% if is_admin and it.origin == 'manual' %}
+            <form method="post" action="{{ url_for('promises.delete_manual_item', number=v.number, tid=it.tid) }}" class="inline-form" onsubmit="return confirm('Delete {{ it.item_id }}?');">{{ csrf_field() }}<button type="submit" class="btn btn-sm btn-danger">Delete</button></form>
+            {% endif %}
+        </div>
+
+        {% if is_admin %}
+        <form class="pdecide" method="post" action="{{ url_for('promises.override_item', number=v.number, tid=it.tid) }}">
+            {{ csrf_field() }}
+            <div class="pdecide-row">
+                <b class="pdecide-label">Your call</b>
+                <button name="status" value="done" class="btn btn-sm btn-rerun" title="the promise was kept">Kept</button>
+                <button name="status" value="open" class="btn btn-sm btn-danger-soft" title="still open, whatever the AI says">Still open</button>
+                <button name="status" value="not_needed" class="btn btn-sm" title="no longer needed: it already exists (e.g. in a follow-up), or the reason went away">Not needed</button>
+                <button name="status" value="ignored" class="btn btn-sm" title="not worth tracking">Ignore</button>
+                {% if it.override %}<button name="action" value="clear" class="btn btn-sm btn-ghost" title="drop the decision">Clear</button>{% endif %}
+                {% if it.override and (it.override.get('status') or it.override.get('note')) %}
+                <span class="muted pdecide-cur">decided: {{ decision_labels.get(it.override.get('status'), 'no status') }}{% if it.override.get('set_by') %} by {{ it.override.get('set_by') }}{% endif %}{% if it.override.get('set_at') %}, {{ it.override.get('set_at')[:10] }}{% endif %}</span>
+                {% endif %}
+            </div>
+            <details class="pmore">
+                <summary>Edit summary, severity, note, follow-up, duplicate</summary>
+                <div class="pdecide-row">
+                    <input type="text" name="summary" value="{{ (it.override or {}).get('summary') or it.summary }}" class="pin-summary" title="summary">
+                    <select name="severity" title="severity">
+                        <option value="" {{ 'selected' if not it.severity }}>severity &mdash;</option>
+                        {% for s in ('high', 'med', 'low') %}<option value="{{ s }}" {{ 'selected' if it.severity == s }}>{{ s }}</option>{% endfor %}
+                    </select>
+                    <input type="text" name="note" value="{{ it.note }}" placeholder="note" class="pin-note">
+                    <input type="text" name="followup_change" value="{{ it.followup.number if it.followup }}" placeholder="follow-up #" class="pin-num mono">
+                    <input type="text" name="duplicate_of" value="" placeholder="duplicate of (item id)" class="pin-dup mono" title="Fold this promise into another one of this change, e.g. {{ v.number }}-a08dac95">
+                    <button name="action" value="save" class="btn btn-sm">Save</button>
+                </div>
+            </details>
+        </form>
+        {% endif %}
+    </div>
+</details>
+{% endmacro %}
+
+{% block content %}
+<p class="crumbs"><a href="{{ url_for('promises.index') }}">Gerrit Promises</a> <span>/</span> {{ v.number }}</p>
+<div class="page-head">
+    <div class="page-title">
+        <h1>{{ v.change.subject or '(not harvested yet)' }}</h1>
+        <p class="page-sub">
+            <a href="{{ gerrit_url }}/{{ v.number }}" target="_blank" rel="noopener" class="mono">{{ v.number }}</a>
+            {% if v.change.branch %}<span class="pchip">{{ v.change.branch }}</span>{% endif %}
+            {% if v.change.current_patchset %}<span class="pchip">PS{{ v.change.current_patchset }}</span>{% endif %}
+            {% if v.change.status %}<span class="pchip">{{ v.change.status|lower }}</span>{% endif %}
+            {% if v.internal %}<span class="internal-badge">internal</span>{% endif %}
+            {% if v.own_ticket %}<a href="{{ jira_url }}/browse/{{ v.own_ticket }}" target="_blank" rel="noopener">{{ v.own_ticket }}</a>{% endif %}
+            {% if v.change.owner %}&middot; {{ v.change.owner }}{% endif %}
+            {% if v.harvest.harvested_at %}&middot; scanned {{ v.harvest.harvested_at|promise_ago }}{% endif %}
+        </p>
+    </div>
+    <div class="accordion-header-buttons">
+        <a href="{{ url_for('promises.export_md', number=v.number) }}" class="btn btn-ghost" title="All promises as markdown">Export .md</a>
+        <button type="button" class="btn btn-ghost" id="copy-md">Copy .md</button>
+    </div>
+</div>
+
+{% if msg %}<div class="flash flash-error">{{ msg }}</div>{% endif %}
+<div id="job-banner" class="job-banner" hidden>
+    <span id="job-text"></span>
+    {% if is_admin %}
+    <form method="post" action="{{ url_for('promises.cancel_job', number=v.number) }}" class="inline-form job-cancel">{{ csrf_field() }}
+        <button type="submit" class="btn btn-sm btn-danger-soft" title="Stop: no new Claude calls start, running ones are killed; what finished is kept">Cancel</button>
+    </form>
+    {% endif %}
+</div>
+{% if v.job and v.job.state == 'error' %}<div class="flash flash-error">The last {{ v.job.name }} failed: {{ v.job.error }}</div>{% endif %}
+
+<section class="group-summary poverview" aria-label="Overview">
+    <div class="gs-item"><span class="gs-num {{ 'pc-open' if v.counts.open else 'pc-zero' }}">{{ v.counts.open }}</span><span class="gs-label">open</span></div>
+    <div class="gs-item" title="Not done yet, but a follow-up change in review does it"><span class="gs-num {{ 'pc-review' if v.counts.followup else 'pc-zero' }}">{{ v.counts.followup }}</span><span class="gs-label">in flight</span></div>
+    <div class="gs-item"><span class="gs-num {{ 'pc-check' if v.counts.attention else 'pc-zero' }}">{{ v.counts.attention }}</span><span class="gs-label">to check</span></div>
+    <div class="gs-item"><span class="gs-num {{ 'pc-kept' if v.counts.addressed else 'pc-zero' }}">{{ v.counts.addressed }}</span><span class="gs-label">kept</span></div>
+    <div class="gs-item"><span class="gs-num {{ '' if v.counts.ignored else 'pc-zero' }}">{{ v.counts.ignored }}</span><span class="gs-label">set aside</span></div>
+    {% if v.resolved_open %}<div class="gs-item" title="Open promises in threads someone marked resolved"><span class="gs-num pc-open">{{ v.resolved_open }}</span><span class="gs-label">in resolved threads</span></div>{% endif %}
+    <p class="gs-note">
+        {{ v.threads_total }} threads read, {{ v.threads_mechanical }} from checkers only skipped{% if v.duplicate_count %}, {{ v.duplicate_count }} duplicate{{ '' if v.duplicate_count == 1 else 's' }} folded in{% endif %}
+        {% if is_admin and v.spend %}<br><span title="API prices as reported by Claude Code; not billed on a subscription">Claude so far: ${{ '%.2f'|format((v.spend.classify or 0) + (v.spend.judge or 0) + (v.spend.group or 0)) }} at API prices</span>{% endif %}
+    </p>
+</section>
+
+<div class="pbar">
+    {% if authenticated %}
+    <form method="post" action="{{ url_for('promises.rescan', number=v.number) }}" class="inline-form">{{ csrf_field() }}<button type="submit" class="btn btn-sm" title="Read the threads again and look for follow-ups (free)">Rescan</button></form>
+    {% endif %}
+    {% if is_admin %}
+        {% if not claude_ready %}
+        <span class="muted">Claude is not configured on this server.</span>
+        {% else %}
+        <span class="pbar-sep" aria-hidden="true"></span>
+        <form method="post" action="{{ url_for('promises.classify', number=v.number) }}" class="inline-form">{{ csrf_field() }}
+            <button type="submit" class="btn btn-sm btn-soft-primary" {{ 'disabled' if not (v.unclassified or v.groups_stale) }} title="Claude reads the threads not analysed yet, picks out the promises, and groups duplicates">1 &middot; Find promises{% if v.unclassified %} ({{ v.unclassified }} threads){% elif v.groups_stale %} (group duplicates){% endif %}</button></form>
+        {% if v.judge_unsupported %}
+        <span class="muted" title="{{ v.judge_unsupported }}">Checking against the code: {{ v.judge_unsupported }}.</span>
+        {% else %}
+        <form method="post" action="{{ url_for('promises.judge_change', number=v.number) }}" class="inline-form">{{ csrf_field() }}
+            <button type="submit" class="btn btn-sm btn-rerun" {{ 'disabled' if not v.to_check }} title="Claude checks each promise against the current patchset, master and the follow-ups found">2 &middot; Check promises{% if v.to_check %} ({{ v.to_check }}){% endif %}</button></form>
+        <form method="post" action="{{ url_for('promises.judge_change', number=v.number) }}" class="inline-form">{{ csrf_field() }}<input type="hidden" name="scope" value="open">
+            <button type="submit" class="btn btn-sm btn-ghost" {{ 'disabled' if not v.counts.open }} title="Also check the promises judged open again">Re-check open</button></form>
+        {% endif %}
+        {% endif %}
+        <form method="post" action="{{ url_for('promises.untrack', number=v.number) }}" class="inline-form pbar-end" onsubmit="return confirm('Stop tracking {{ v.number }}? Tracking it again restores everything.');">{{ csrf_field() }}<button type="submit" class="btn btn-sm btn-ghost">Stop tracking</button></form>
+    {% endif %}
+</div>
+
+<nav class="view-tabs ptabs" role="tablist" aria-label="Sections">
+    <a href="#tab-promises" data-tab="promises" class="active">Promises <span class="tcount">{{ v.promises|length }}</span></a>
+    {% if v.possible %}<a href="#tab-possible" data-tab="possible">Possible <span class="tcount">{{ v.possible|length }}</span></a>{% endif %}
+    {% if v.own_ticket_changes or v.fixes %}<a href="#tab-related" data-tab="related">Related changes <span class="tcount">{{ v.own_ticket_changes|length + v.fixes|length }}</span></a>{% endif %}
+    {% if v.non_items %}<a href="#tab-other" data-tab="other">Other threads <span class="tcount">{{ v.non_items|length }}</span></a>{% endif %}
+</nav>
+
+<div class="ppane" id="tab-promises">
+    {% for bucket in bucket_order %}
+    {% set group = v.grouped[bucket] %}
+    {% if group or bucket in ('open', 'attention') %}
+    <details class="pbucket pb-{{ bucket }}" {{ 'open' if bucket in ('open', 'followup', 'attention') or not (v.grouped.open or v.grouped.attention) }}>
+        <summary><h2>{{ bucket_labels[bucket] }} <span class="count">{{ group|length }}</span></h2></summary>
+        {% for it in group %}{{ item_card(it) }}{% endfor %}
+        {% if not group %}<p class="muted pnone">{% if bucket == 'open' and not v.classified_any %}Claude has not looked for promises on this change yet{% if is_admin and claude_ready %} &mdash; start with <b>Find promises</b>{% endif %}.{% else %}None.{% endif %}</p>{% endif %}
+    </details>
+    {% endif %}
+    {% endfor %}
+    {% if is_admin %}
+    <details class="pbucket padd">
+        <summary><h2>Add a promise by hand</h2> <span class="muted">for one that is not in any thread</span></summary>
+        <form method="post" action="{{ url_for('promises.add_manual_item', number=v.number) }}" class="pdecide-row">
+            {{ csrf_field() }}
+            <input type="text" name="summary" placeholder="what was promised" class="pin-summary" required>
+            <input type="text" name="file_path" placeholder="file (optional)" class="mono">
+            <input type="text" name="line" placeholder="line" size="6" class="mono">
+            <select name="severity"><option value="">severity &mdash;</option><option>high</option><option>med</option><option>low</option></select>
+            <input type="text" name="note" placeholder="note" class="pin-note">
+            <button type="submit" class="btn btn-sm btn-soft-primary">Add</button>
+        </form>
+    </details>
+    {% endif %}
+</div>
+
+{% if v.possible %}
+<div class="ppane" id="tab-possible">
+    <p class="muted pane-note">Threads with promise-like wording that Claude has not read yet. A keyword match only &mdash; it misses about one promise in five and flags some that are not.</p>
+    {% for it in v.possible %}{{ item_card(it) }}{% endfor %}
+</div>
+{% endif %}
+
+{% if v.own_ticket_changes or v.fixes %}
+<div class="ppane" id="tab-related">
+    <p class="muted pane-note">Changes found by Gerrit search. The check is told about the ones updated after a promise was made.</p>
+    <ul class="plinks prelated">
+        {% for f in v.fixes %}<li>{{ followup_link(f) }} <span class="muted">cites this change's commit</span></li>{% endfor %}
+        {% for f in v.own_ticket_changes %}<li>{{ followup_link(f) }} <span class="muted">same ticket {{ v.own_ticket }}</span></li>{% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+{% if v.non_items %}
+<div class="ppane" id="tab-other">
+    {% set unread = v.non_items|rejectattr('classification')|list %}
+    <p class="muted pane-note">{% if unread|length == v.non_items|length %}Threads Claude has not read yet.{% elif unread %}{{ v.non_items|length - unread|length }} judged not a promise, {{ unread|length }} not read by Claude yet.{% else %}Judged not a promise &mdash; spot-check them here.{% endif %}</p>
+    <table class="graph-table pothers">
+        {% for it in v.non_items %}
+        <tr>
+            <td>{{ location(it) }}</td>
+            <td>{{ it.summary }}</td>
+            <td class="muted">{{ it.asked_by or '' }}{% if it.is_resolved %} &middot; resolved{% endif %}{% if not it.classification %} &middot; not read yet{% endif %}</td>
+            <td class="col-open">{% if it.gerrit_url %}<a href="{{ it.gerrit_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-ghost">Gerrit &#8599;</a>{% endif %}
+                {% if is_admin %}<form method="post" action="{{ url_for('promises.override_item', number=v.number, tid=it.tid) }}" class="inline-form">{{ csrf_field() }}<button name="status" value="open" class="btn btn-sm" title="make it a tracked promise">Track as promise</button></form>{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endif %}
+
+<p class="footnote">Verdicts are AI output, checked against the commits they cite &mdash; verify before acting on one.</p>
+
+<script>
+(function () {
+    // Tabs. Without JS every pane shows, one under the other.
+    var tabs = document.querySelectorAll(".ptabs a");
+    function show(name) {
+        tabs.forEach(function (a) { a.classList.toggle("active", a.dataset.tab === name); });
+        document.querySelectorAll(".ppane").forEach(function (p) { p.hidden = p.id !== "tab-" + name; });
+    }
+    tabs.forEach(function (a) { a.addEventListener("click", function (e) { e.preventDefault(); show(a.dataset.tab); }); });
+    show("promises");
+
+    // A link to #item-... opens it, and the tab and cards around it.
+    function openHash() {
+        if (!location.hash) return;
+        var el = document.getElementById(location.hash.slice(1));
+        if (!el) return;
+        var pane = el.closest(".ppane");
+        if (pane) show(pane.id.slice(4));
+        var p = el;
+        while (p) { if (p.tagName === "DETAILS") p.open = true; p = p.parentElement; }
+        el.scrollIntoView({block: "start"});
+    }
+    window.addEventListener("hashchange", openHash);
+    openHash();
+
+    function copy(text, btn) {
+        var done = function (ok) { var old = btn.textContent; btn.textContent = ok ? "Copied" : "Copy failed"; setTimeout(function () { btn.textContent = old; }, 1200); };
+        if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); }); return; }
+        var ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select(); var ok = false; try { ok = document.execCommand("copy"); } catch (e) {} ta.remove(); done(ok);
+    }
+    document.querySelectorAll(".copy-action").forEach(function (b) { b.addEventListener("click", function () { copy(b.dataset.text, b); }); });
+    var md = document.getElementById("copy-md");
+    md.addEventListener("click", function () {
+        fetch({{ url_for('promises.export_md', number=v.number)|tojson }}, {credentials: "same-origin"}).then(function (r) { return r.text(); }).then(function (t) { copy(t, md); });
+    });
+
+    var API = {{ url_for('promises.api_jobs')|tojson }}, NUM = {{ v.number|string|tojson }}, wasRunning = false;
+    function poll() {
+        fetch(API, {credentials: "same-origin"}).then(function (r) { return r.json(); }).then(function (jobs) {
+            var job = jobs[NUM], running = job && job.state === "running", banner = document.getElementById("job-banner");
+            banner.hidden = !running;
+            if (running) {
+                document.getElementById("job-text").textContent = job.cancelling ? job.name + ": cancelling…" : job.name + " running — " + (job.phase || "") + " " + (job.detail || "");
+                var stop = banner.querySelector(".job-cancel button");
+                if (stop) stop.disabled = !!job.cancelling;
+                wasRunning = true; setTimeout(poll, 3000);
+            } else if (wasRunning) { window.location.reload(); }
+        }).catch(function () { setTimeout(poll, 10000); });
+    }
+    poll();
+})();
+</script>
+{% endblock %}

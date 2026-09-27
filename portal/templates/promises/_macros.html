@@ -1,0 +1,35 @@
+{# Pieces shared by the Gerrit Promises pages. #}
+
+{% macro status_chip(it) -%}
+<span class="pst pst-{{ it.effective_status }}" title="{{ it.stale_info or '' }}">{{ it.status_label }}</span>
+{%- endmacro %}
+
+{% macro counts_line(c, possible=0, analysed=True) -%}
+{%- if analysed or c.open or c.attention or c.addressed -%}
+<span class="pcounts">
+  <span class="{{ 'pc-open' if c.open else 'pc-zero' }}" title="open promises">{{ c.open }} open</span>
+  <span class="pc-sep">&middot;</span>
+  {% if c.followup %}<span class="pc-review" title="a follow-up change in review does it">{{ c.followup }} in flight</span>
+  <span class="pc-sep">&middot;</span>{% endif %}
+  <span class="{{ 'pc-check' if c.attention else 'pc-zero' }}" title="not checked yet, outdated or unclear">{{ c.attention }} to check</span>
+  <span class="pc-sep">&middot;</span>
+  <span class="{{ 'pc-kept' if c.addressed else 'pc-zero' }}" title="kept">{{ c.addressed }} kept</span>
+</span>
+{%- else -%}
+<span class="muted" title="Claude has not looked for promises yet">not analysed{% if possible %} &middot; {{ possible }} possible{% endif %}</span>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro repeats(it) -%}
+{%- if it.duplicates -%}<span class="pchip prepeat" title="also raised in {{ it.duplicates|length }} other thread{{ '' if it.duplicates|length == 1 else 's' }}{% if it.group_reason %}: {{ it.group_reason }}{% endif %}">+{{ it.duplicates|length }} repeat{{ '' if it.duplicates|length == 1 else 's' }}</span>{%- endif -%}
+{%- endmacro %}
+
+{% macro location(it) -%}
+<bdi class="ploc">{{ it.file_path or '(change-level)' }}{% if it.line %}:{{ it.line }}{% endif %}</bdi>
+{%- endmacro %}
+
+{% macro who(it) -%}
+{%- if it.promised_by -%}<span class="pwho" title="made the promise">{{ it.promised_by }}</span>
+{%- elif it.asked_by -%}<span class="pwho muted" title="opened the thread">{{ it.asked_by }}</span>
+{%- endif -%}
+{%- endmacro %}

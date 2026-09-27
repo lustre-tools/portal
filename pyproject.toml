@@ -29,6 +29,7 @@ dev = ["pytest>=7.0"]
 portal = "portal.__main__:main"
 portal-users = "portal.cli:main"
 portal-refresh = "portal.refresh:main"
+portal-promises = "portal.promises.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["portal*"]

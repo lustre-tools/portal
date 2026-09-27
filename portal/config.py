@@ -44,6 +44,16 @@ def _env_int(name, default):
         return default
 
 
+def _env_float(name, default):
+    raw = _env(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 def _env_list(name, default):
     raw = _env(name)
     if raw is None or raw == "":
@@ -105,6 +115,12 @@ def _secret_key(testing):
     )
 
 
+def _default_mechanical():
+    from portal.promises.harvest import DEFAULT_MECHANICAL
+
+    return DEFAULT_MECHANICAL
+
+
 def build_config(testing=False):
     """Return the Flask config mapping for one app instance."""
     load_dotenv()
@@ -120,6 +136,7 @@ def build_config(testing=False):
     if private_prefix and not private_prefix.startswith("/"):
         private_prefix = "/" + private_prefix
     private_dir = _env("PRIVATE_DIR") or os.path.join(data_dir, "private")
+    promises_dir = _env("PROMISES_DIR") or os.path.join(data_dir, "promises")
 
     return {
         "SECRET_KEY": _secret_key(testing),
@@ -178,6 +195,26 @@ def build_config(testing=False):
         # binary; otherwise it is found next to the running interpreter.
         "GC_BIN": _env("GC_BIN") or _default_gc_bin(),
         "GC_CWD": _env("GC_CWD") or None,
+        # Gerrit Promises (portal/promises). Off unless asked for; the
+        # Claude stages additionally need the claude CLI and a token
+        # (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY) in the environment.
+        "PROMISES_ENABLED": (_env("PROMISES", "0") or "0").lower() in ("1", "true", "yes"),
+        "PROMISES_DIR": os.path.abspath(promises_dir),
+        "PROMISES_MECHANICAL": _env_list("PROMISES_MECHANICAL", _default_mechanical()),
+        "PROMISES_CLASSIFY_BATCH": max(1, _env_int("PROMISES_CLASSIFY_BATCH", 60)),
+        "CLAUDE_BINARY": _env("CLAUDE_BINARY") or None,
+        "CLAUDE_CLASSIFY_MODEL": _env("CLAUDE_CLASSIFY_MODEL", "sonnet"),
+        "CLAUDE_JUDGE_MODEL": _env("CLAUDE_JUDGE_MODEL", "opus"),
+        "CLAUDE_EFFORT": _env("CLAUDE_EFFORT", "medium"),
+        # Hard caps per call, passed to --max-budget-usd.
+        "CLAUDE_CLASSIFY_BUDGET_USD": max(0.05, _env_float("CLAUDE_CLASSIFY_BUDGET_USD", 0.5)),
+        "CLAUDE_JUDGE_BUDGET_USD": max(0.05, _env_float("CLAUDE_JUDGE_BUDGET_USD", 2.0)),
+        "CLAUDE_CLASSIFY_TIMEOUT": max(60, _env_int("CLAUDE_CLASSIFY_TIMEOUT", 600)),
+        "CLAUDE_JUDGE_TIMEOUT": max(60, _env_int("CLAUDE_JUDGE_TIMEOUT", 1500)),
+        # Up to this many Claude calls at once -- but a new one only starts
+        # while this much memory is free, so a small host runs what fits.
+        "CLAUDE_PARALLEL": max(1, _env_int("CLAUDE_PARALLEL", 10)),
+        "CLAUDE_MIN_FREE_MB": max(0, _env_int("CLAUDE_MIN_FREE_MB", 400)),
         # Concurrency caps, to spread load on the Gerrit server.
         "INTERACTIVE_RUN_CONCURRENCY": max(1, _env_int("INTERACTIVE_RUN_CONCURRENCY", 3)),
         "SCHEDULED_REFRESH_CONCURRENCY": max(1, _env_int("SCHEDULED_REFRESH_CONCURRENCY", 3)),

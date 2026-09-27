@@ -611,7 +611,7 @@ def test_websocket_overrides_a_client_supplied_internal_access(
         {
             "run_id": "r1",
             "tool_id": "gc-graph",
-            "params": {"change_number": "LU-19921", "_internal_access": True, "branch": "b_es7_0"},
+            "params": {"change_number": "LU-19921", "_internal_access": True, "branch": "b2_15"},
         },
     )
     # --branch is privileged, so it must have been dropped despite the

@@ -11,11 +11,14 @@
     <nav class="navbar">
         <div class="nav-left">
             <a href="/" class="nav-brand">{{ site_name }}</a>
-            <a href="{{ url_for('gerrit_vis.index') }}" class="nav-link {% block nav_active %}{% endblock %}">Gerrit Visualizer</a>
-            {# Each of these appears only when the operator has configured it. #}
+            {# The optional ones appear only when the operator has configured them. #}
             {% if dashboard_prefix %}
             <a href="{{ dashboard_prefix }}" class="nav-link {% block nav_active_dash %}{% endblock %}">Gerrit Dashboard</a>
             {% endif %}
+            {% if promises_enabled %}
+            <a href="{{ url_for('promises.index') }}" class="nav-link {% block nav_active_promises %}{% endblock %}">Gerrit Promises</a>
+            {% endif %}
+            <a href="{{ url_for('gerrit_vis.index') }}" class="nav-link {% block nav_active %}{% endblock %}">Gerrit Visualizer</a>
             {% if private_prefix and private_role in current_roles %}
             <a href="{{ private_prefix }}/" class="nav-link {% block nav_active_private %}{% endblock %}">{{ private_label }}</a>
             {% endif %}

@@ -93,6 +93,10 @@ def create_app(overrides=None, testing=False):
 
     init_gc_graph_tool()
 
+    from portal.blueprints.promises import init_promises
+
+    init_promises(app)
+
     @app.context_processor
     def _chrome():
         """Values every template's header needs."""
@@ -107,6 +111,7 @@ def create_app(overrides=None, testing=False):
             "private_role": app.config.get("PRIVATE_ROLE") or "",
             "private_theme": app.config.get("PRIVATE_THEME") or "",
             "dashboard_prefix": app.config.get("DASHBOARD_PREFIX") or "",
+            "promises_enabled": bool(app.config.get("PROMISES_ENABLED")),
             "current_user": current_user(),
             "current_roles": current_roles(),
         }
@@ -157,6 +162,7 @@ def create_app(overrides=None, testing=False):
             req.path.startswith("/gerrit_vis/graphs")
             or req.path.startswith("/login")
             or req.path == "/gerrit_vis/"
+            or req.path.startswith("/gerrit_promise")
         )
         if private_prefix and req.path.startswith(private_prefix):
             cached_never = True

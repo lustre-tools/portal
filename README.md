@@ -218,6 +218,54 @@ The bundled pin exists for a reason: the portal reads the last line of
 `gc`'s output to recover a ticket's anchor change. A checkout at any
 other commit is your call.
 
+## Gerrit Promises
+
+In review, work is often deferred -- "pre-existing, will fix in a
+follow-up", "I will create a patch in LU-19999" -- and the thread is
+resolved and forgotten. The Gerrit Promises tab tracks changes and shows
+every such promise, and whether it was kept:
+
+* **Free, for anyone signed in:** tracking a change reads all its
+  threads and review messages, skips the ones only mechanical checkers
+  took part in, shows a keyword preview, and finds likely follow-ups --
+  changes linked in a thread, changes on a ticket a thread names, and
+  commits that cite the change once it is merged. Tracked changes are
+  re-read daily by the refresh timer.
+* **Claude, for admins only:** *Find promises* reads the threads and
+  picks out the promises (batched, no tools); *Check promises* judges
+  each one against the change's current patchset and master. The check
+  works on a read-only snapshot of the code with Read/Grep/Glob and
+  nothing else, so comment text cannot make it run anything. Every call
+  has a hard cap and is logged with its price at API rates -- on a
+  subscription that is a measure of usage, not a charge.
+* **Decisions by hand** (admins) always win: kept, still open, not
+  needed, ignored, or a linked follow-up -- one still in review counts
+  as "in a follow-up" and becomes "kept" when it merges.
+
+Checking against code covers `master` of `PORTAL_PUBLIC_PROJECT`; other
+changes can still be tracked and have their promises found. Internal
+changes are visible only with the `internal` role, like graphs.
+
+To switch it on, add to `portal.env`:
+
+```bash
+PORTAL_PROMISES=1
+# For the Claude stages: the claude CLI on the host, and a token.
+# `claude setup-token` makes a long-lived one for a Claude Code
+# subscription: calls count against the plan's usage limits and nothing
+# is billed per token. (ANTHROPIC_API_KEY works instead, billed per token;
+# when both are set, the subscription token wins.)
+CLAUDE_CODE_OAUTH_TOKEN=...
+# Optional: PORTAL_CLAUDE_CLASSIFY_MODEL (sonnet), PORTAL_CLAUDE_JUDGE_MODEL
+# (opus), PORTAL_CLAUDE_EFFORT (medium), PORTAL_CLAUDE_JUDGE_BUDGET_USD (2.0),
+# PORTAL_PROMISES_MECHANICAL (accounts that only post checker output).
+```
+
+then fetch the code the checks read once, as the service user
+(`portal-promises mirror`), and restart. `portal-promises` also runs every
+pipeline from a shell, and imports data from the older gerrit-followup
+tool.
+
 ## Security
 
 Sessions are signed cookies, `HttpOnly`, `SameSite=Strict`, `Secure`,

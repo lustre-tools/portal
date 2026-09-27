@@ -201,7 +201,7 @@ def test_ticket_public_drops_branch_and_normalizes(app, graph_dir, fake_gen):
             {
                 "change_number": "lu-19921",
                 "_internal_access": False,
-                "branch": "b_es7_0",
+                "branch": "b2_15",
                 "ticket": "lu-18222, garbage, LU-17916",
             },
             sock,
@@ -233,13 +233,13 @@ def test_ticket_internal_keeps_branch_and_classifies_internal(app, graph_dir, fa
             {
                 "change_number": "LU-19921",
                 "_internal_access": True,
-                "branch": "b_es7_0",
+                "branch": "b2_15",
             },
             sock,
             "room1",
         )
     cmd = FakePopen.last_cmd
-    assert cmd[cmd.index("--branch") + 1] == "b_es7_0"
+    assert cmd[cmd.index("--branch") + 1] == "b2_15"
     assert "--cross-project" not in cmd  # ticket mode never cross-project
 
     e = get_entry(graph_dir, "LU-19921")
