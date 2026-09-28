@@ -124,9 +124,12 @@ def strong(words: list[str]) -> bool:
     return any(weight(w) > 1 for w in words)
 
 
-def item_text(item) -> str:
-    """Everything said about one promise, duplicates included."""
-    parts = [item.summary or "", item.promise_quote or "", item.code_context or ""]
+def item_text(item, code: bool = True) -> str:
+    """Everything said about one promise, duplicates included -- and the
+    code around the comment, unless ``code`` is false."""
+    parts = [item.summary or "", item.promise_quote or ""]
+    if code:
+        parts.append(item.code_context or "")
     for it in [item, *list(item.duplicates or [])]:
         parts.append((it.root or {}).get("message", ""))
         parts += [r.get("message", "") for r in it.replies or []]
@@ -198,18 +201,24 @@ def code_tickets(diffs: dict[str, str], own: str, prefix: str) -> dict[str, list
 
 
 def tickets_for(
-    item, code: dict[str, list[tuple[str, str]]], idents: set[str], files: list[str], depth: Depth
+    item,
+    code: dict[str, list[tuple[str, str]]],
+    idents: set[str],
+    files: list[str],
+    depth: Depth,
+    prefix: str = "LU",
 ) -> dict[str, str]:
     """{ticket: why} for the code tickets that belong to this promise:
     the line naming it shares a name or a test with the thread
-    (``always_except LU-20708 41d`` for "fix 41d"). That the thread names
-    the ticket is not enough -- an umbrella ticket is named everywhere;
-    the tickets a reply promises are searched by the rescan anyway. A
-    deeper check takes every ticket in the item's files."""
+    (``always_except LU-20708 41d`` for "fix 41d"), or someone in the
+    thread names the ticket. The code quoted around the comment does not
+    count for that -- it is where an umbrella ticket turns up. A deeper
+    check takes every ticket in the item's files."""
+    said = ticket_re(prefix).findall(item_text(item, code=False))
     out: dict[str, str] = {}
     for ticket, places in code.items():
         for path, line in places:
-            if strong(hits(idents, line)):
+            if ticket in said or strong(hits(idents, line)):
                 out[ticket] = f"{ticket}, left in {path}: {line[:70]}"
                 break
             if depth.name == "deep" and path in files:

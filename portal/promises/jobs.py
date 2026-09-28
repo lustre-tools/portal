@@ -449,7 +449,9 @@ def _search_for(settings, doc, items, mirror, pins, depth, report, cancel) -> di
         files = discover.files_for(item, diffs, idents, depth)
         since = (facts.get("created") if depth.since_created else "") or _item_since(item)
         entries = []
-        tickets = discover.tickets_for(item, code, idents, [p for p, _ in files], depth)
+        tickets = discover.tickets_for(
+            item, code, idents, [p for p, _ in files], depth, settings.ticket_prefix
+        )
         for ticket, why in tickets.items():
             for c in finder.on_ticket(ticket, facts.get("created", ""), depth.ticket_results):
                 entries.append((c, "ticket", ticket, why))

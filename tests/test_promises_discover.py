@@ -111,15 +111,26 @@ def test_a_parked_test_ties_its_ticket_to_the_promise_not_a_mention():
         "lustre/lov/lov_io.c": "+\t * again -- that's a refcount underflow (LU-12668)",
     }
     t = th(
-        root_msg="Tests 41d and 53a are disabled in the same patch (LU-12668).",
+        root_msg="Tests 41d and 53a are disabled in the same patch.",
         replies=["Acknowledged"],
     )
+    t["code_context"] = ">>> 29: always_except LU-12668 41d 53a  # (LU-12668)"
     doc = change_doc(threads=[t], classifications={t["id"]: classification(t)})
     item = status.build_items(doc, {"overrides": {}, "manual_items": {}})[0][0]
     code = discover.code_tickets(diffs, own="LU-12669", prefix="LU")
     idents = discover.identifiers(discover.item_text(item))
     got = discover.tickets_for(item, code, idents, list(diffs), NORMAL)
     assert set(got) == {"LU-20708", "LU-20709"}
+
+
+def test_a_ticket_someone_names_ties_its_parked_lines_to_the_promise():
+    diffs = {"lustre/tests/sanity-ec.sh": "+always_except LU-20566 41j 41k"}
+    t = th(root_msg="DIO+AIO recovery is missing.", replies=["Filed LU-20566 for that."])
+    doc = change_doc(threads=[t], classifications={t["id"]: classification(t)})
+    item = status.build_items(doc, {"overrides": {}, "manual_items": {}})[0][0]
+    code = discover.code_tickets(diffs, own="LU-12669", prefix="LU")
+    got = discover.tickets_for(item, code, set(), [], NORMAL, "LU")
+    assert list(got) == ["LU-20566"]
 
 
 def test_an_unrelated_ticket_in_the_code_needs_a_deeper_check():
