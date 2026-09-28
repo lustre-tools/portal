@@ -7,8 +7,14 @@ are plain Gerrit searches:
 
 * every Gerrit change linked in a thread ("Addressed in .../+/68697");
 * every ticket a promise names ("filed LU-20566", "a patch in LU-19999")
-  -> changes whose commit message names it, created after the thread;
+  -> changes whose commit message names it, touched since the change was
+  created (Gerrit's ``after:`` is "modified after"; it narrows the search
+  on the server, so a busy ticket is not cut to its newest few);
 * once the change is merged -> later changes whose message cites its commit.
+
+Abandoned changes are left out. What a check looks at beyond this --
+the files a promise is about, the tickets a change leaves in its code --
+is in :mod:`.discover`.
 
 Results go into the change document's ``candidates`` section and are
 shown next to the promise; the judge is told about them too, so it
@@ -20,37 +26,38 @@ page can never list an internal change.
 
 from __future__ import annotations
 
+from .discover import summarize as _summarize
 from .models import now_iso
 from .status import own_ticket, promise_tickets
 
-#: Most tickets searched per change, and results kept per search.
+#: Most tickets searched per change, and results kept per search (Gerrit's
+#: pages are followed up to that).
 MAX_TICKETS = 20
-MAX_RESULTS = 8
-
-
-def _summarize(c: dict) -> dict:
-    ps = None
-    rev = c.get("current_revision")
-    if rev and rev in (c.get("revisions") or {}):
-        ps = c["revisions"][rev].get("_number")
-    return {
-        "number": c.get("_number"),
-        "subject": c.get("subject", ""),
-        "status": c.get("status", ""),
-        "project": c.get("project", ""),
-        "branch": c.get("branch", ""),
-        "current_patchset": ps,
-        "updated": c.get("updated", ""),
-        "created": c.get("created", ""),
-    }
+MAX_RESULTS = 100
 
 
 def _search(client, query: str) -> list[dict]:
     try:
-        found = client.search_changes(query, limit=MAX_RESULTS, options=["CURRENT_REVISION"])
+        found = client.search_all(
+            query, max_results=MAX_RESULTS, page_size=MAX_RESULTS, options=["CURRENT_REVISION"]
+        )
     except Exception:  # noqa: BLE001 - one failed search must not stop the rescan
         return []
     return [_summarize(c) for c in found or [] if c.get("_number")]
+
+
+def change_facts(client, number: int) -> dict:
+    """When the change was created, and its topic and hashtags -- what
+    the searches here and in a check are scoped by. Empty on failure."""
+    try:
+        c = client.get_change(int(number))
+    except Exception:  # noqa: BLE001 - the searches just go unscoped
+        return {}
+    return {
+        "created": c.get("created", ""),
+        "topic": c.get("topic", ""),
+        "hashtags": list(c.get("hashtags") or []),
+    }
 
 
 def find_candidates(client, change_doc: dict, *, public_project: str, ticket_prefix: str) -> dict:
@@ -60,6 +67,8 @@ def find_candidates(client, change_doc: dict, *, public_project: str, ticket_pre
     change = harvest.get("change") or {}
     number = change_doc.get("change_number")
     scope = f" project:{public_project}" if change.get("project") == public_project else ""
+    facts = change_facts(client, number)
+    after = f" after:{facts['created'][:10]}" if facts.get("created") else ""
 
     tickets: list[str] = []
     mine = own_ticket(change_doc, ticket_prefix)
@@ -74,7 +83,9 @@ def find_candidates(client, change_doc: dict, *, public_project: str, ticket_pre
 
     by_ticket = {}
     for ticket in tickets[:MAX_TICKETS]:
-        by_ticket[ticket] = _search(client, f'message:"{ticket}" -change:{number}{scope}')
+        by_ticket[ticket] = _search(
+            client, f'message:"{ticket}" -change:{number} -is:abandoned{scope}{after}'
+        )
 
     links: list[int] = []
     for t in harvest.get("threads") or []:
@@ -95,10 +106,11 @@ def find_candidates(client, change_doc: dict, *, public_project: str, ticket_pre
     fixes = []
     sha = change.get("current_revision") or ""
     if change.get("status") == "MERGED" and len(sha) >= 12:
-        fixes = _search(client, f'message:"{sha[:12]}" -change:{number}{scope}')
+        fixes = _search(client, f'message:"{sha[:12]}" -change:{number} -is:abandoned{scope}')
 
     return {
         "found_at": now_iso(),
+        "change": facts,
         "own_ticket": mine,
         "by_ticket": by_ticket,
         "by_link": by_link,

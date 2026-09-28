@@ -117,6 +117,25 @@ def workspace(monkeypatch):
     monkeypatch.setattr(jobs.repo, "files_changed", lambda *a: ["lustre/mdd/mdd_object.c"])
     monkeypatch.setattr(jobs.repo, "history", lambda *a: "history\n")
     monkeypatch.setattr(jobs.repo, "ticket_log", lambda *a: "tickets\n")
+    monkeypatch.setattr(jobs.repo, "diff_by_file", lambda *a: {})
+    monkeypatch.setattr(jobs.repo, "fetch_many", lambda mirror, pairs: set(pairs))
+    monkeypatch.setattr(jobs.repo, "changed_lines", lambda *a: "")
+    monkeypatch.setattr(jobs.repo, "rev_parse", lambda mirror, ref: "f" * 40)
+    monkeypatch.setattr(jobs.repo, "show", lambda mirror, sha: "a diff\n")
+    monkeypatch.setattr(jobs.Settings, "gerrit", lambda self: NoGerrit())
+
+
+class NoGerrit:
+    def __init__(self, results=None):
+        self.results = results or {}
+        self.queries = []
+
+    def search_all(self, query, max_results=500, page_size=100, options=None):
+        self.queries.append(query)
+        for key, value in self.results.items():
+            if key in query:
+                return value
+        return []
 
 
 def judged_doc(**kw):
@@ -536,3 +555,236 @@ def test_the_prompt_lists_the_follow_ups_and_the_new_verdict(
     prompt = calls.prompts[0]
     assert "67878" in prompt and "stacked on this change" in prompt and '"in-followup"' in prompt
     assert out["adjudications"]["t0_x"]["verdict"] == "in-followup"
+
+
+# ---------- what a check looks at ----------
+
+
+def aio_doc():
+    """62757's shape: a promise on the commit message about tests the
+    change parked in always_except under another ticket."""
+    t = th(
+        tid="91cfac09_e607d390",
+        file_path="/COMMIT_MSG",
+        line=50,
+        root_msg="those AIO tests are added to the always_except list.",
+        replies=[],
+    )
+    cls = classification(
+        t,
+        summary="Re-enable the AIO tests currently parked in the always_except list",
+        quote=None,
+    )
+    return change_doc(
+        number=62757,
+        threads=[t],
+        classifications={t["id"]: cls},
+        subject="LU-12669 ec: recover data from parity",
+        candidates={"change": {"created": "2025-11-27 03:24:38.000000000"}},
+    )
+
+
+def _gerrit_change(n, subject, updated="2026-09-01 00:00:00.000000000", ps=3):
+    return {
+        "_number": n,
+        "status": "NEW",
+        "subject": subject,
+        "updated": updated,
+        "created": "2026-08-10 00:00:00.000000000",
+        "current_revision": "r",
+        "revisions": {"r": {"_number": ps}},
+    }
+
+
+@pytest.fixture
+def aio_world(monkeypatch, workspace):
+    gerrit = NoGerrit(
+        {
+            'message:"LU-20566"': [_gerrit_change(67878, "LU-20566 ec: recover O_DIRECT reads")],
+            'path:"lustre/tests/sanity-ec.sh"': [
+                _gerrit_change(68204, "LU-19631 tests: enable sanity-ec 12a"),
+                _gerrit_change(65921, "LU-19548 lfs: mirror extend support for EC", "2026-09-28"),
+                _gerrit_change(64919, "LU-12668 lov: slow OST detection"),
+            ],
+        }
+    )
+    monkeypatch.setattr(jobs.Settings, "gerrit", lambda self: gerrit)
+    monkeypatch.setattr(
+        jobs.repo,
+        "diff_by_file",
+        lambda *a: {
+            "lustre/tests/sanity-ec.sh": "+always_except LU-20566 41j 41k 41l 41m 41n",
+            "lustre/llite/file.c": "+\treturn -EIO;",
+        },
+    )
+    lines = {68204: "-always_except LU-19631 12a", 64919: "+\tlocal aio=$DIR/$tfile.aio"}
+    monkeypatch.setattr(
+        jobs.repo,
+        "changed_lines",
+        lambda mirror, ref, paths=None: lines.get(int(ref.split("/")[-1].split("-")[0]), ""),
+    )
+    return gerrit
+
+
+def test_a_promise_on_the_commit_message_is_checked_against_its_file_and_ticket(
+    settings, store, monkeypatch, aio_world
+):
+    seed(store, aio_doc())
+    calls = Calls(['{"verdict": "still-open", "related": ["67878", "x"]}'])
+    monkeypatch.setattr(claude, "run", calls)
+    out = jobs.run_judge(settings, store, 62757)
+    adj = out["adjudications"]["91cfac09_e607d390"]
+    got = [(c["number"], c["reason"]) for c in adj["looked_at"]]
+    assert got[0][0] == 67878 and got[0][1].startswith(
+        "LU-20566, left in lustre/tests/sanity-ec.sh"
+    )
+    assert got[1] == (68204, "touches lustre/tests/sanity-ec.sh (always_except)"), (
+        "a change whose diff has what the promise is about comes before one that only "
+        "touches the file"
+    )
+    assert {n for n, _ in got[2:]} == {65921, 64919}, "the rest, fewer of them"
+    assert adj["depth"] == "normal" and adj["related"] == [67878]
+    assert "67878" in calls.prompts[0] and "deeper check" not in calls.prompts[0]
+    assert all(f'project:"{PUBLIC}"' in q and "-change:62757" in q for q in aio_world.queries), (
+        "every search stays in the change's project"
+    )
+    assert any("after:2026-08-28" in q for q in aio_world.queries if "path:" in q), (
+        "a quick check looks at files changed since the promise"
+    )
+
+
+def test_a_deeper_check_searches_further_back_and_thinks_harder(
+    settings, store, monkeypatch, aio_world
+):
+    seed(store, aio_doc())
+    calls = Calls(['{"verdict": "still-open"}'])
+    monkeypatch.setattr(claude, "run", calls)
+    out = jobs.run_judge(settings, store, 62757, depth="deep")
+    kw = calls.kwargs[0]
+    assert kw["effort"] == "high"
+    assert kw["budget_usd"] == settings.claude.judge_budget_usd * 2
+    assert kw["timeout"] == int(settings.claude.judge_timeout * 1.5)
+    assert "deeper check" in calls.prompts[0]
+    assert any("after:2025-11-27" in q for q in aio_world.queries if "path:" in q)
+    assert any('path:"lustre/llite/file.c"' in q for q in aio_world.queries), (
+        "a deeper check also searches the rest of the change's files"
+    )
+    assert out["adjudications"]["91cfac09_e607d390"]["depth"] == "deep"
+
+
+def test_preview_shows_what_a_check_would_get_without_claude(
+    settings, store, monkeypatch, aio_world
+):
+    seed(store, aio_doc())
+    monkeypatch.setattr(claude, "run", Calls([]))  # any call would fail: no answers
+    got = jobs.preview_candidates(settings, store, 62757)
+    one = got["91cfac09_e607d390"]
+    assert one["files"] == ["lustre/tests/sanity-ec.sh"]
+    assert one["tickets"] == ["LU-20566"], "master's log is read for the parked ticket"
+    assert [c["number"] for c in one["candidates"]][:2] == [67878, 68204]
+
+
+def test_the_pool_keeps_open_work_on_a_promised_ticket_even_if_older():
+    """An open change nobody touched since the promise is still the
+    follow-up; a change that landed before the promise cannot be."""
+    from portal.promises import status
+
+    t = th(replies=["Tracked in LU-20566, will do it there."])
+    doc = change_doc(
+        threads=[t],
+        classifications={t["id"]: classification(t)},
+        candidates={
+            "by_ticket": {
+                "LU-20566": [
+                    {"number": 67878, "status": "NEW", "created": "2026-08-10 00:00:00",
+                     "updated": "2026-08-12 00:00:00"},
+                    {"number": 60000, "status": "MERGED", "created": "2026-01-01 00:00:00",
+                     "updated": "2026-01-02 00:00:00"},
+                ]
+            },
+            "fixes": [{"number": 69999, "status": "NEW", "subject": "fix it"}],
+        },
+    )  # fmt: skip
+    item = status.build_items(doc, {"overrides": {}, "manual_items": {}})[0][0]
+    pool = jobs.judge_candidates(item, doc, "LU")
+    assert [(c.number, c.reason) for c in pool] == [
+        (69999, "cites this commit"),
+        (67878, "promised in LU-20566"),
+    ]
+
+
+def test_one_umbrella_ticket_does_not_fill_the_pool(monkeypatch):
+    """Open changes and the best matches first, a few per ticket."""
+    from portal.promises import discover
+
+    entries = [
+        (
+            {"number": 100 + i, "status": "MERGED", "updated": f"2026-09-{10 + i:02d}"},
+            "ticket",
+            "LU-12668",
+            "LU-12668, left in lov_io.c: ...",
+        )
+        for i in range(12)
+    ] + [({"number": 99, "status": "NEW", "updated": "2026-01-01"}, "ticket", "LU-12668", "x")]
+    found = {"idents": {"always_except"}, "files": [], "tickets": ["LU-12668"], "entries": entries}
+    got = jobs._rank(found, None, set(), discover.DEPTHS["normal"])
+    assert len(got) == discover.DEPTHS["normal"].per_ticket
+    assert 99 in [c["number"] for c in got], "the open one is kept, however old"
+
+
+def test_a_change_found_twice_says_both_and_old_merges_are_dropped():
+    from portal.promises import status
+
+    t = th(replies=["Tracked in LU-20566, will do it there."])
+    doc = change_doc(
+        threads=[t],
+        classifications={t["id"]: classification(t)},
+        candidates={
+            "stacked": [{"number": 67878, "status": "NEW", "subject": "recover O_DIRECT"}],
+            "by_ticket": {"LU-20566": [{"number": 67878, "status": "NEW"}]},
+        },
+    )
+    item = status.build_items(doc, {"overrides": {}, "manual_items": {}})[0][0]
+    found = [
+        {"number": 67878, "status": "NEW", "reason": "LU-20566, left in sanity-ec.sh: ..."},
+        {"number": 62000, "status": "MERGED", "updated": "2026-01-02 00:00:00", "reason": "old"},
+    ]
+    pool = jobs.judge_candidates(item, doc, "LU", found=found)
+    assert [(c.number, c.reason) for c in pool] == [
+        (
+            67878,
+            "names LU-20566; stacked on this change; LU-20566, left in sanity-ec.sh: ...",
+        )
+    ]
+
+
+def test_rescan_refreshes_the_changes_the_checks_named(settings, store, monkeypatch):
+    t = th()
+    doc = change_doc(
+        threads=[t],
+        adjudications={
+            t["id"]: adjudication(
+                t,
+                verdict="in-followup",
+                addressed_in={"kind": "change", "ref": "68204", "detail": ""},
+                related=[67878, 64620],
+            )
+        },
+    )
+    seed(store, doc)
+    monkeypatch.setattr(
+        jobs.harvest,
+        "harvest_change",
+        lambda url, n, mech: {"change_number": n, "harvest": doc["harvest"]},
+    )
+    monkeypatch.setattr(jobs.Settings, "gerrit", lambda self: object())
+    monkeypatch.setattr(jobs.followups, "find_candidates", lambda client, d, **kw: {})
+    asked = []
+    monkeypatch.setattr(
+        jobs.followups,
+        "fetch_linked_changes",
+        lambda client, nums: asked.extend(nums) or {str(n): {"status": "MERGED"} for n in nums},
+    )
+    out = jobs.run_rescan(settings, store, 64620)
+    assert sorted(set(asked)) == [67878, 68204], "not the change itself"
+    assert out["linked_changes"]["68204"]["status"] == "MERGED"

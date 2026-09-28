@@ -383,13 +383,18 @@ def judge_change(number: int):
     _load_visible(number)
     settings, store = _settings(), _store()
     scope = "open" if request.form.get("scope") == "open" else "pending"
+    depth = _depth()
     return _start(
         number,
-        "check promises",
+        "check promises deeper" if depth == "deep" else "check promises",
         lambda progress, cancel: jobs.run_judge(
-            settings, store, number, scope=scope, progress=progress, cancel=cancel
+            settings, store, number, scope=scope, progress=progress, cancel=cancel, depth=depth
         ),
     )
+
+
+def _depth() -> str:
+    return "deep" if request.form.get("depth") == "deep" else "normal"
 
 
 @promises_bp.post("/<int:number>/item/<tid>/judge")
@@ -397,11 +402,12 @@ def judge_change(number: int):
 def judge_item(number: int, tid: str):
     _load_visible(number)
     settings, store = _settings(), _store()
+    depth = _depth()
     return _start(
         number,
-        "check promise",
+        "check promise deeper" if depth == "deep" else "check promise",
         lambda progress, cancel: jobs.run_judge(
-            settings, store, number, tid=tid, progress=progress, cancel=cancel
+            settings, store, number, tid=tid, progress=progress, cancel=cancel, depth=depth
         ),
     )
 

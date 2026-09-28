@@ -157,18 +157,23 @@ def _followup_for(override: dict | None, manual: dict | None, linked: dict) -> F
 
 
 def known_changes(change_doc: dict) -> dict[int, dict]:
-    """Everything the portal knows about other changes, by number: found
-    by link, ticket, the relation chain, or linked by hand."""
+    """Everything the portal knows about other changes, by number: linked
+    by hand or named by a check (refreshed on every rescan, so first),
+    found by link, ticket or the relation chain, or looked at by a check."""
     cands = change_doc.get("candidates") or {}
     out: dict[int, dict] = {}
-    pools = [cands.get("stacked") or [], list((cands.get("by_link") or {}).values())]
-    pools += list((cands.get("by_ticket") or {}).values())
-    pools += [
+    pools = [
         [
             {"number": int(k), **v}
             for k, v in (change_doc.get("linked_changes") or {}).items()
-            if k.isdigit()
+            if k.isdigit() and not v.get("error")
         ]
+    ]
+    pools += [cands.get("stacked") or [], list((cands.get("by_link") or {}).values())]
+    pools += list((cands.get("by_ticket") or {}).values())
+    pools += [cands.get("fixes") or []]
+    pools += [
+        adj.get("looked_at") or [] for adj in (change_doc.get("adjudications") or {}).values()
     ]
     for pool in pools:
         for c in pool:
@@ -211,6 +216,34 @@ def _follow_the_followup(item: Item, known: dict[int, dict]) -> None:
         item.effective_status = "open"
     else:
         item.followup_in_review = fu
+
+
+def _what_the_check_saw(item: Item, known: dict[int, dict]) -> None:
+    """The changes the last check looked at and the ones it named as
+    related, with their state as of the last rescan."""
+    adj = item.adjudication or {}
+
+    def fu(num: int, reason: str = "", subject: str = "", status: str = "") -> Followup:
+        info = known.get(num) or {}
+        return Followup(
+            number=num,
+            status=info.get("status") or status,
+            subject=info.get("subject") or subject,
+            current_patchset=info.get("current_patchset"),
+            reason=reason,
+        )
+
+    item.looked_at = [
+        fu(c["number"], c.get("reason", ""), c.get("subject", ""), c.get("status", ""))
+        for c in adj.get("looked_at") or []
+        if isinstance(c.get("number"), int)
+    ]
+    reasons = {f.number: f.reason for f in item.looked_at}
+    item.related = [
+        fu(int(n), reasons.get(int(n), ""))
+        for n in adj.get("related") or []
+        if str(n).isdigit() and int(n) != item.change_number
+    ]
 
 
 def _candidates_for(
@@ -403,6 +436,7 @@ def build_items(
     known = known_changes(change_doc)
     for it in items:
         _follow_the_followup(it, known)
+        _what_the_check_saw(it, known)
     _apply_groups(items, change_doc.get("groups"), overrides)
 
     for mid, m in sorted(manual_items.items()):

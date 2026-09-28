@@ -233,7 +233,15 @@ every such promise, and whether it was kept:
   re-read daily by the refresh timer.
 * **Claude, for admins only:** *Find promises* reads the threads and
   picks out the promises (batched, no tools); *Check promises* judges
-  each one against the change's current patchset and master. The check
+  each one against the change's current patchset and master. Before it
+  does, the portal looks for follow-ups with the code at hand: the files
+  a promise is about (including the ones a comment on the commit message
+  only talks about), changes to those files since, and changes on
+  tickets the change leaves in its code (`always_except LU-... 41j`) --
+  ranked by whether their diff touches what the promise is about. A
+  *deeper* check searches back to the change's creation, takes more
+  files and candidates, and thinks harder. The page shows what each
+  check looked at. The check
   works on a read-only snapshot of the code with Read/Grep/Glob and
   nothing else, so comment text cannot make it run anything. Every call
   has a hard cap and is logged with its price at API rates -- on a
@@ -257,7 +265,9 @@ PORTAL_PROMISES=1
 # when both are set, the subscription token wins.)
 CLAUDE_CODE_OAUTH_TOKEN=...
 # Optional: PORTAL_CLAUDE_CLASSIFY_MODEL (sonnet), PORTAL_CLAUDE_JUDGE_MODEL
-# (opus), PORTAL_CLAUDE_EFFORT (medium), PORTAL_CLAUDE_JUDGE_BUDGET_USD (2.0),
+# (opus), PORTAL_CLAUDE_EFFORT (medium), PORTAL_CLAUDE_DEEP_EFFORT (high, for
+# a deeper check, which also gets twice the budget),
+# PORTAL_CLAUDE_JUDGE_BUDGET_USD (2.0),
 # PORTAL_PROMISES_MECHANICAL (accounts that only post checker output).
 ```
 

@@ -30,6 +30,7 @@
         <b>{{ {'still-open': 'Still open', 'addressed': 'Kept', 'invalid': 'Not needed'}.get(adj.verdict, 'Unclear') }}</b>
         <span>PS{{ adj.judged_patchset }} vs master <span class="mono">{{ (adj.judged_master or '')[:10] }}</span></span>
         <span>{{ (adj.judged_at or '')[:10] }}</span>
+        {% if adj.depth == 'deep' %}<span class="pchip" title="a deeper check: searched further back, more files and candidates, more effort">deeper</span>{% endif %}
         {% if adj.usd %}<span title="API price of this check as reported by Claude Code; not billed on a subscription">${{ '%.2f'|format(adj.usd) }}</span>{% endif %}
     </div>
     {% if it.stale_info %}<p class="pv-stale">Outdated: {{ it.stale_info }}. This verdict is from before.</p>{% endif %}
@@ -38,6 +39,7 @@
     {% else %}
     {% if adj.addressed_in %}<p class="pv-line"><b>Kept in</b> {{ adj.addressed_in.kind }} <span class="mono">{{ adj.addressed_in.ref or '' }}</span> &mdash; {{ adj.addressed_in.detail }}</p>{% endif %}
     <p class="pv-evidence">{{ adj.evidence }}</p>
+    {% if it.related %}<div class="pv-line"><b>Related work</b> <span class="muted">&mdash; toward it, not keeping it</span><ul class="plinks">{% for f in it.related %}<li>{{ followup_link(f) }}</li>{% endfor %}</ul></div>{% endif %}
     {% if adj.suggested_action %}<p class="pv-line"><b>Suggested action:</b> {{ adj.suggested_action }}
         <button type="button" class="btn btn-sm btn-ghost copy-action" data-text="address item {{ it.item_id }}: {{ adj.suggested_action }}">Copy as prompt</button></p>{% endif %}
     {% endif %}
@@ -96,18 +98,18 @@
             <ul class="plinks"><li>{{ followup_link(it.followup) }} <span class="muted">linked by hand{% if it.in_open_followup %} &middot; still in review{% endif %}</span></li></ul>
         </div>
         {% endif %}
-        {% if it.candidates %}
-        {% if it.followups_ruled_out %}
-        <details class="psection pfold">
-            <summary><h4>The check looked at {{ it.candidates|length }} possible follow-up{{ '' if it.candidates|length == 1 else 's' }} <span>&mdash; none keeps the promise</span></h4></summary>
-            <ul class="plinks">{{ candidate_rows(it.candidates) }}</ul>
-        </details>
-        {% else %}
+        {% if it.candidates and not it.followups_ruled_out %}
         <div class="psection">
             <h4>Possible follow-ups <span>&mdash; found in Gerrit, not confirmed{% if not it.adjudication %}; the check will look at them{% endif %}</span></h4>
             <ul class="plinks">{{ candidate_rows(it.candidates) }}</ul>
         </div>
         {% endif %}
+        {% set seen = it.looked_at or (it.candidates if it.followups_ruled_out else []) %}
+        {% if seen %}
+        <details class="psection pfold">
+            <summary><h4>The check looked at {{ seen|length }} change{{ '' if seen|length == 1 else 's' }} <span>&mdash; {% if it.followups_ruled_out %}none keeps the promise{% else %}most likely first{% endif %}{% if (it.adjudication or {}).depth != 'deep' and is_admin and claude_ready and not v.judge_unsupported and it.origin == 'thread' %}; a deeper check looks further{% endif %}</span></h4></summary>
+            <ul class="plinks">{{ candidate_rows(seen) }}</ul>
+        </details>
         {% endif %}
 
         {% if it.duplicates %}
@@ -148,6 +150,7 @@
             <span class="mono muted pid">{{ it.item_id }}</span>
             {% if is_admin and it.origin == 'thread' and claude_ready and not v.judge_unsupported %}
             <form method="post" action="{{ url_for('promises.judge_item', number=v.number, tid=it.tid) }}" class="inline-form">{{ csrf_field() }}<button type="submit" class="btn btn-sm btn-rerun" title="{{ 'Check this promise again' if it.adjudication else 'Check this promise against the code' }} (Claude)">{{ 'Check again' if it.adjudication else 'Check' }}</button></form>
+            <form method="post" action="{{ url_for('promises.judge_item', number=v.number, tid=it.tid) }}" class="inline-form">{{ csrf_field() }}<input type="hidden" name="depth" value="deep"><button type="submit" class="btn btn-sm btn-ghost" title="Search further back, more files and more candidates, and think harder (Claude, about twice the cost)">Check deeper</button></form>
             {% endif %}
             {% if is_admin and it.origin == 'manual' %}
             <form method="post" action="{{ url_for('promises.delete_manual_item', number=v.number, tid=it.tid) }}" class="inline-form" onsubmit="return confirm('Delete {{ it.item_id }}?');">{{ csrf_field() }}<button type="submit" class="btn btn-sm btn-danger">Delete</button></form>
@@ -249,9 +252,9 @@
         <span class="muted" title="{{ v.judge_unsupported }}">Checking against the code: {{ v.judge_unsupported }}.</span>
         {% else %}
         <form method="post" action="{{ url_for('promises.judge_change', number=v.number) }}" class="inline-form">{{ csrf_field() }}
-            <button type="submit" class="btn btn-sm btn-rerun" {{ 'disabled' if not v.to_check }} title="Claude checks each promise against the current patchset, master and the follow-ups found">2 &middot; Check promises{% if v.to_check %} ({{ v.to_check }}){% endif %}</button></form>
-        <form method="post" action="{{ url_for('promises.judge_change', number=v.number) }}" class="inline-form">{{ csrf_field() }}<input type="hidden" name="scope" value="open">
-            <button type="submit" class="btn btn-sm btn-ghost" {{ 'disabled' if not v.counts.open }} title="Also check the promises judged open again">Re-check open</button></form>
+            <button type="submit" name="scope" value="pending" class="btn btn-sm btn-rerun" {{ 'disabled' if not v.to_check }} title="Claude checks each promise against the current patchset, master and the follow-ups found">2 &middot; Check promises{% if v.to_check %} ({{ v.to_check }}){% endif %}</button>
+            <button type="submit" name="scope" value="open" class="btn btn-sm btn-ghost" {{ 'disabled' if not v.counts.open }} title="Also check the promises judged open again">Re-check open</button>
+            <label class="pdeep" title="Search further back, more files and more candidates, and think harder (about twice the cost)"><input type="checkbox" name="depth" value="deep"> deeper</label></form>
         {% endif %}
         {% endif %}
         <form method="post" action="{{ url_for('promises.untrack', number=v.number) }}" class="inline-form pbar-end" onsubmit="return confirm('Stop tracking {{ v.number }}? Tracking it again restores everything.');">{{ csrf_field() }}<button type="submit" class="btn btn-sm btn-ghost">Stop tracking</button></form>

@@ -206,6 +206,7 @@ def build_config(testing=False):
         "CLAUDE_CLASSIFY_MODEL": _env("CLAUDE_CLASSIFY_MODEL", "sonnet"),
         "CLAUDE_JUDGE_MODEL": _env("CLAUDE_JUDGE_MODEL", "opus"),
         "CLAUDE_EFFORT": _env("CLAUDE_EFFORT", "medium"),
+        "CLAUDE_DEEP_EFFORT": _env("CLAUDE_DEEP_EFFORT", "high"),
         # Hard caps per call, passed to --max-budget-usd.
         "CLAUDE_CLASSIFY_BUDGET_USD": max(0.05, _env_float("CLAUDE_CLASSIFY_BUDGET_USD", 0.5)),
         "CLAUDE_JUDGE_BUDGET_USD": max(0.05, _env_float("CLAUDE_JUDGE_BUDGET_USD", 2.0)),

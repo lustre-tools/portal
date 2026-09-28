@@ -15,11 +15,11 @@ class FakeGerrit:
             raise RuntimeError("404")
         return self.changes[num]
 
-    def search_changes(self, query, limit=25, options=None):
+    def search_all(self, query, max_results=500, page_size=100, options=None):
         self.queries.append(query)
         for key, value in self.results.items():
             if key in query:
-                return value
+                return value[:max_results]
         return []
 
 
@@ -43,6 +43,37 @@ def test_every_named_ticket_is_searched_and_the_changes_own():
     assert found["own_ticket"] == "LU-19548"
     assert set(found["by_ticket"]) == {"LU-19548", "LU-19999"}
     assert found["by_ticket"]["LU-19999"][0]["number"] == 70001
+
+
+def test_ticket_searches_are_narrowed_on_the_server_not_cut_short():
+    """after: the change's creation and no abandoned changes, instead of
+    the newest few of everything -- a busy ticket used to lose its real
+    follow-ups that way."""
+    t = th(replies=["I will create a patch in LU-19999."])
+    client = FakeGerrit(
+        {"LU-19999": [{"_number": 70000 + i, "status": "NEW"} for i in range(60)]},
+        changes={
+            64620: {
+                "_number": 64620,
+                "created": "2026-03-17 08:00:00.000000000",
+                "topic": "ec2",
+                "hashtags": ["pt_ecro"],
+            }
+        },
+    )
+    found = followups.find_candidates(
+        client, change_doc(threads=[t]), public_project=PUBLIC, ticket_prefix="LU"
+    )
+    ticket_queries = [q for q in client.queries if "LU-19999" in q]
+    assert ticket_queries and all(
+        "-is:abandoned" in q and "after:2026-03-17" in q for q in ticket_queries
+    )
+    assert len(found["by_ticket"]["LU-19999"]) == 60, "Gerrit's pages are followed"
+    assert found["change"] == {
+        "created": "2026-03-17 08:00:00.000000000",
+        "topic": "ec2",
+        "hashtags": ["pt_ecro"],
+    }
 
 
 def test_a_public_change_is_searched_within_the_public_project_only():
@@ -81,7 +112,7 @@ def test_a_merged_change_is_also_searched_by_its_commit():
 
 def test_a_failed_search_does_not_stop_the_rest():
     class Broken(FakeGerrit):
-        def search_changes(self, query, **kw):
+        def search_all(self, query, **kw):
             raise RuntimeError("gerrit down")
 
     found = followups.find_candidates(

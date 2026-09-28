@@ -143,3 +143,62 @@ def test_sweep_removes_workspaces_of_dead_jobs_only(tmp_path):
     (dead / repo.OWNER_FILE).write_text("999999999")
     repo.sweep(work)
     assert mine.exists() and not dead.exists() and not unowned.exists()
+
+
+def test_the_changes_diff_comes_per_file_with_only_its_lines(mirror):
+    master = repo.rev_parse(mirror, "refs/heads/master")
+    got = repo.diff_by_file(mirror, master, master)
+    assert set(got) == {"lustre/a.c", "lustre/evil"}
+    assert got["lustre/a.c"] == "+int b; /* the promised fix */"
+    assert repo.changed_lines(mirror, master, ["lustre/a.c"]) == "+int b; /* the promised fix */"
+
+
+def test_split_diff_keeps_deleted_files_and_dash_lines():
+    text = "\n".join(
+        [
+            "diff --git a/x.sh b/x.sh",
+            "--- a/x.sh",
+            "+++ b/x.sh",
+            "@@ -1 +1 @@",
+            "--- a removed line that began with two dashes",
+            "+new",
+            "diff --git a/gone.c b/gone.c",
+            "--- a/gone.c",
+            "+++ /dev/null",
+            "@@ -1 +0,0 @@",
+            "-int gone;",
+            "",
+        ]
+    )
+    got = repo._split_diff(text)
+    assert got == {
+        "x.sh": "--- a removed line that began with two dashes\n+new",
+        "gone.c": "-int gone;",
+    }
+
+
+def test_fetch_many_fetches_what_exists_and_skips_what_does_not(tmp_path):
+    origin = tmp_path / "origin.git"
+    work = tmp_path / "w"
+    work.mkdir()
+    git(work, "init", "-q", "-b", "master")
+    git(work, "config", "user.email", "t@example.com")
+    git(work, "config", "user.name", "T")
+    for n in (11, 12):
+        (work / f"f{n}").write_text(str(n))
+        git(work, "add", ".")
+        git(work, "commit", "-q", "-m", f"change {n}")
+        git(work, "update-ref", f"refs/changes/{n % 100:02d}/{n}/1", "HEAD")
+    git(tmp_path, "clone", "-q", "--bare", "--mirror", str(work), str(origin))
+    mirror = repo.ensure_mirror(tmp_path / "repos", str(tmp_path), "origin.git")
+    got = repo.fetch_many(mirror, [(11, 1), (12, 1), (13, 1), (0, 1), (14, None)])
+    assert got == {(11, 1), (12, 1)}, "the missing one costs only itself"
+    assert repo.rev_parse(mirror, "refs/promises/12-1")
+    calls = []
+    real = repo.git
+    repo.git = lambda *a, **kw: (calls.append(a[1]), real(*a, **kw))[1]
+    try:
+        assert repo.fetch_many(mirror, [(11, 1)]) == {(11, 1)}
+    finally:
+        repo.git = real
+    assert "fetch" not in calls, "already in the mirror: no fetch"

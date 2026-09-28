@@ -39,6 +39,7 @@ class ClaudeSettings:
     judge_budget_usd: float = 2.0
     classify_timeout: int = 600
     judge_timeout: int = 1500
+    deep_effort: str = "high"  # a deeper check (more candidates) thinks harder too
     parallel: int = 10
     min_free_mb: int = 400
 
@@ -349,6 +350,8 @@ Decide whether the item is STILL an issue. Check, in order:
     reading every diff. A merged one counts as landed.
 (4) do the replies show it was withdrawn, refuted or judged unnecessary?
 Judge on the merits; if the original comment was simply wrong, say so.
+If no change does it but some work toward it -- part of it, or what it
+waits for -- name them in "related".
 $hints
 Verdicts:
   "addressed"    done: in this change's current patchset, on master, or in a
@@ -365,6 +368,7 @@ Answer with ONE JSON object and nothing else:
                   "ref": "<PS number, commit sha or Gerrit change number>",
                   "detail": "<one line>"} or null,
  "evidence": "<short prose citing file:line and commit shas>",
+ "related": ["<change number>", ...],
  "suggested_action": "<what a follow-up patch should do, imperative; empty if nothing>"}
 """
 
@@ -382,23 +386,33 @@ def _valid_adjudication(entry: dict) -> dict:
         }
     else:
         ai = None
+    related = []
+    raw = entry.get("related")
+    for ref in raw if isinstance(raw, list) else []:
+        ref = str(ref).strip().lstrip("#")
+        if ref.isdigit() and int(ref) not in related:
+            related.append(int(ref))
     return {
         "verdict": verdict,
         "addressed_in": ai,
         "evidence": str(entry.get("evidence") or "")[:4000],
+        "related": related[:10],
         "suggested_action": str(entry.get("suggested_action") or "")[:2000],
     }
 
 
-def judge_prompt(change_doc: dict, item, pins: dict, files: dict, candidates=None) -> str:
+def judge_prompt(
+    change_doc: dict, item, pins: dict, files: dict, candidates=None, deep: bool = False
+) -> str:
     """The adjudication prompt for one item. ``files`` names what was
     written into the workspace for it: history, tickets, candidates.
-    ``candidates``: the follow-ups to mention (default: the item's own)."""
+    ``candidates``: the follow-ups to mention (default: the item's own).
+    ``deep``: a deeper check, with a longer list of weaker matches."""
     candidates = item.candidates if candidates is None else candidates
     change = (change_doc.get("harvest") or {}).get("change") or {}
     extra = []
     for rel in files.get("tickets", []):
-        extra.append(f"  {rel:<16} commits on master naming a ticket from the thread")
+        extra.append(f"  {rel:<16} commits on master naming a ticket of this item")
     if files.get("candidates"):
         extra.append(f"  {'candidates/':<16} diffs of the possible follow-ups listed below")
     hints = []
@@ -429,6 +443,12 @@ def judge_prompt(change_doc: dict, item, pins: dict, files: dict, candidates=Non
         hints.append(
             f"A person linked follow-up change {item.followup.number} "
             f"({item.followup.status or 'status unknown'}) as keeping this. Verify."
+        )
+    if deep:
+        hints.append(
+            "This is a deeper check, asked for because a quick one was not enough: the\n"
+            "list is longer and ranked, weaker matches last. Grep all of candidates/\n"
+            "and the history for the promised work before you settle on still-open."
         )
     merged = change.get("status") == "MERGED"
     return string.Template(_JUDGE_PROMPT).safe_substitute(
@@ -480,11 +500,12 @@ def adjudicate(
     on_call=None,
     cancel=None,
     candidates=None,
+    deep: bool = False,
 ) -> dict:
     """Check one item. Always returns a storable entry: on failure the
     verdict is "unclear" and ``raw_error`` says why."""
     change = (change_doc.get("harvest") or {}).get("change") or {}
-    prompt = judge_prompt(change_doc, item, pins, files, candidates)
+    prompt = judge_prompt(change_doc, item, pins, files, candidates, deep=deep)
     stamp = {
         "judged_at": now_iso(),
         "judged_revision": change.get("current_revision", ""),
@@ -533,6 +554,7 @@ def adjudicate(
         "verdict": "unclear",
         "addressed_in": None,
         "evidence": "",
+        "related": [],
         "suggested_action": "",
         **stamp,
         "raw_error": last_err,

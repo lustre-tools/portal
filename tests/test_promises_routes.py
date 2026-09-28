@@ -535,4 +535,59 @@ def test_the_nav_order_and_the_alpha_tag(client):
     body = client.get("/gerrit_promise/").data.decode()
     assert body.index(">Gerrit Promises</a>") < body.index(">Gerrit Visualizer</a>")
     assert '<span class="beta-tag">alpha</span>' in body
-    assert "beta-tag" not in client.get("/gerrit_vis/").data.decode(), "the Visualizer is no longer a beta"
+    assert "beta-tag" not in client.get("/gerrit_vis/").data.decode(), (
+        "the Visualizer is no longer a beta"
+    )
+
+
+def test_the_admin_can_ask_for_a_deeper_check(app, client, login_admin, store, calls):
+    seed(store, promise_doc())
+    login_admin()
+    client.post("/gerrit_promise/64620/item/a08dac95_b61396c6/judge", data={"depth": "deep"})
+    wait_jobs(app)
+    client.post("/gerrit_promise/64620/judge", data={"scope": "pending", "depth": "deep"})
+    wait_jobs(app)
+    client.post("/gerrit_promise/64620/judge", data={"scope": "open", "depth": "bogus"})
+    wait_jobs(app)
+    assert [(c[2].get("scope"), c[2].get("depth")) for c in calls] == [
+        (None, "deep"),
+        ("pending", "deep"),
+        ("open", "normal"),
+    ]
+
+
+def test_the_page_shows_what_the_check_looked_at_and_related_work(
+    client, login_admin, store, monkeypatch
+):
+    monkeypatch.setattr("portal.promises.claude.find_binary", lambda configured=None: "/bin/true")
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok")
+    t = th()
+    adj = adjudication(
+        t,
+        depth="deep",
+        related=[67878],
+        looked_at=[
+            {"number": 67878, "status": "NEW", "subject": "LU-20566 ec: recover O_DIRECT reads",
+             "reason": "LU-20566, left in lustre/tests/sanity-ec.sh: always_except LU-20566 41j"},
+            {"number": 68204, "status": "NEW", "subject": "LU-19631 tests: enable sanity-ec 12a",
+             "reason": "touches lustre/tests/sanity-ec.sh (always_except)"},
+        ],
+    )  # fmt: skip
+    seed(
+        store,
+        change_doc(
+            threads=[t],
+            classifications={t["id"]: classification(t)},
+            adjudications={t["id"]: adj},
+            linked={"67878": {"status": "MERGED", "subject": "LU-20566 ec: recover O_DIRECT"}},
+        ),
+    )
+    page = client.get("/gerrit_promise/64620").data.decode()
+    assert "The check looked at 2 changes" in page and "none keeps the promise" in page
+    assert "touches lustre/tests/sanity-ec.sh (always_except)" in page
+    assert "Related work" in page and ">deeper<" in page
+    assert "Check deeper" not in page, "only the admin runs checks"
+    related = page.split("Related work", 1)[1].split("</ul>", 1)[0]
+    assert "67878" in related and "merged" in related, "state as of the last rescan"
+    login_admin()
+    assert "Check deeper" in client.get("/gerrit_promise/64620").data.decode()

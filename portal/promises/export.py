@@ -80,6 +80,11 @@ def _full_block(it: Item) -> list[str]:
         out.append(
             f"**Check (AI, {adj.get('judged_at', '')[:10]}, verdict {adj.get('verdict')}):** {adj.get('evidence') or '-'}"
         )
+        if it.related:
+            out.append(
+                "**Related work:** "
+                + ", ".join(f"{f.number} ({f.status or '?'}): {f.subject}" for f in it.related)
+            )
         if adj.get("suggested_action"):
             out.append(f"**Suggested action:** {adj['suggested_action']}")
     if it.duplicates:

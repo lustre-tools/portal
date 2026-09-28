@@ -3,6 +3,7 @@
     portal-promises scan 62757 70100      track + harvest + follow-ups (free)
     portal-promises classify 62757        find the promises (Claude)
     portal-promises judge 62757           check them (Claude)
+    portal-promises candidates 62757      what the checks would look at (free)
     portal-promises export 62757 [-o f]   markdown
     portal-promises list
     portal-promises import DIR            gerrit-followup data -> here
@@ -102,6 +103,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("change")
     p.add_argument("--scope", choices=("pending", "open"), default="pending")
     p.add_argument("--tid", default=None, help="one thread id")
+    p.add_argument("--deep", action="store_true", help="a deeper check (see discover.py)")
+    p = sub.add_parser(
+        "candidates", help="what a check would look at, without Claude (for tuning the search)"
+    )
+    p.add_argument("change")
+    p.add_argument("--tid", default=None, help="one thread id")
+    p.add_argument("--deep", action="store_true")
     p = sub.add_parser("export", help="markdown for one change")
     p.add_argument("change")
     p.add_argument("-o", "--output")
@@ -156,8 +164,31 @@ def main(argv: list[str] | None = None) -> int:
         jobs.run_classify(settings, store, numbers[0], progress=_progress)
     elif args.cmd == "judge":
         jobs.run_judge(
-            settings, store, numbers[0], scope=args.scope, tid=args.tid, progress=_progress
+            settings,
+            store,
+            numbers[0],
+            scope=args.scope,
+            tid=args.tid,
+            progress=_progress,
+            depth="deep" if args.deep else "normal",
         )
+    elif args.cmd == "candidates":
+        got = jobs.preview_candidates(
+            settings,
+            store,
+            numbers[0],
+            tid=args.tid,
+            depth="deep" if args.deep else "normal",
+            progress=_progress,
+        )
+        for tid, one in got.items():
+            print(f"\n== {tid}  {one['summary']}")
+            print("   files: " + (", ".join(one["files"]) or "-"))
+            print("   tickets: " + (", ".join(one["tickets"]) or "-"))
+            for c in one["candidates"]:
+                print(
+                    f"   {c['number']:>7} {c['status'][:6]:<6} {c['reason'][:70]:<70} {c['subject'][:60]}"
+                )
     elif args.cmd == "export":
         doc = store.load_change(numbers[0])
         items, _ = status.build_items(

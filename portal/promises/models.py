@@ -131,6 +131,10 @@ class Item:
     followup_in_review: Followup | None = None
     addressed_via_followup: bool = False
     gerrit_url: str | None = None
+    # From the last check: what it looked at, and the changes it named as
+    # working toward the promise without keeping it.
+    looked_at: list = field(default_factory=list)  # Followups
+    related: list = field(default_factory=list)  # Followups
 
     @property
     def bucket(self) -> str:

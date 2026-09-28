@@ -97,6 +97,46 @@ def fetch(
         git(mirror, "fetch", "--no-tags", "-q", "origin", *refspecs, timeout=timeout)
 
 
+#: Change refs fetched per git call by fetch_many.
+FETCH_CHUNK = 50
+
+
+def fetch_many(mirror: Path, pairs, timeout: int = 900) -> set[tuple[int, int]]:
+    """Fetch several changes' patchsets -- a few git calls, not one each.
+    Returns the (number, patchset) pairs now in the mirror. A chunk that
+    fails is retried one change at a time, so a patchset that is gone
+    costs only itself."""
+    wanted = sorted({(int(n), int(ps)) for n, ps in pairs if n and ps})
+    present = set(
+        git(mirror, "for-each-ref", "--format=%(refname)", "refs/promises/", check=False).split()
+    )
+    have = {p for p in wanted if f"refs/promises/{p[0]}-{p[1]}" in present}
+    todo = [p for p in wanted if p not in have]
+
+    def spec(p):
+        return f"+{change_ref(*p)}:refs/promises/{p[0]}-{p[1]}"
+
+    for i in range(0, len(todo), FETCH_CHUNK):
+        chunk = todo[i : i + FETCH_CHUNK]
+        try:
+            with _exclusive(mirror):
+                git(
+                    mirror, "fetch", "--no-tags", "-q", "origin", *map(spec, chunk), timeout=timeout
+                )
+            have.update(chunk)
+            continue
+        except (RepoError, subprocess.TimeoutExpired):
+            pass
+        for p in chunk:
+            try:
+                with _exclusive(mirror):
+                    git(mirror, "fetch", "--no-tags", "-q", "origin", spec(p), timeout=300)
+                have.add(p)
+            except (RepoError, subprocess.TimeoutExpired):
+                continue
+    return have
+
+
 def rev_parse(mirror: Path, ref: str) -> str:
     return git(mirror, "rev-parse", "--verify", f"{ref}^{{commit}}").strip()
 
@@ -143,14 +183,71 @@ def _limited(text: str, limit: int) -> str:
     return text[:limit] + f"\n\n[... truncated: {len(text) - limit} more bytes not shown ...]\n"
 
 
-def files_changed(mirror: Path, base: str, sha: str) -> list[str]:
-    """Files the change touches relative to where it branched from master."""
+def _branch_point(mirror: Path, base: str, sha: str) -> str:
     merge_base = git(mirror, "merge-base", base, sha, check=False).strip()
     if not merge_base or merge_base == sha:
         # Already on master (merged): its own diff is against its parent.
         merge_base = f"{sha}^"
-    out = git(mirror, "diff", "--name-only", merge_base, sha, check=False)
+    return merge_base
+
+
+def files_changed(mirror: Path, base: str, sha: str) -> list[str]:
+    """Files the change touches relative to where it branched from master."""
+    out = git(mirror, "diff", "--name-only", _branch_point(mirror, base, sha), sha, check=False)
     return [line for line in out.splitlines() if line.strip()]
+
+
+#: Most of one file's diff kept by diff_by_file.
+FILE_DIFF_LIMIT = 60_000
+
+
+def diff_by_file(mirror: Path, base: str, sha: str) -> dict[str, str]:
+    """The change's own diff, per file: just the lines it adds and removes."""
+    out = git(
+        mirror,
+        "diff",
+        "--no-color",
+        "-U0",
+        _branch_point(mirror, base, sha),
+        sha,
+        check=False,
+        timeout=300,
+    )
+    return _split_diff(out)
+
+
+def _split_diff(text: str) -> dict[str, str]:
+    files: dict[str, list[str]] = {}
+    current = old = None
+    for line in text.splitlines():
+        if line.startswith("diff --git "):
+            current = old = None
+        elif line.startswith("--- ") and current is None:
+            old = line[6:] if line.startswith("--- a/") else None
+        elif line.startswith("+++ ") and current is None:
+            # A deleted file has no new name: keep it under the old one.
+            current = line[6:] if line.startswith("+++ b/") else old
+            if current:
+                files.setdefault(current, [])
+        elif current is not None and line[:1] in ("+", "-"):
+            files[current].append(line)
+    return {p: _limited("\n".join(lines), FILE_DIFF_LIMIT) for p, lines in files.items()}
+
+
+def changed_lines(mirror: Path, sha: str, paths: list[str] | None = None) -> str:
+    """What one commit adds and removes -- in ``paths`` only, if given."""
+    args = ["show", "--no-color", "--format=", "-U0", sha]
+    if paths:
+        args += ["--", *paths]
+    out = git(mirror, *args, check=False, timeout=120)
+    return _limited(
+        "\n".join(
+            line
+            for line in out.splitlines()
+            if line[:1] in ("+", "-") and not line.startswith(("+++ ", "--- "))
+        ),
+        DIFF_LIMIT,
+    )
 
 
 def history(mirror: Path, master: str, since: str, paths: list[str]) -> str:
