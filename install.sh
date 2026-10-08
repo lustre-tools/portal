@@ -628,7 +628,8 @@ EOF
     if run systemd-run --quiet --wait --pipe --collect \
             -p User="$SVC_USER" -p Group="$SVC_USER" \
             -p EnvironmentFile="$ENV_FILE" -p WorkingDirectory="$APP_DIR" \
-            -p ProtectSystem=strict -p ReadWritePaths="$DATA_DIR" \
+            -p ProtectSystem=strict -p ProtectHome=true -p PrivateTmp=true \
+            -p ReadWritePaths="$DATA_DIR" \
             "$VENV/bin/portal-refresh" --backfill; then
         ok "graph stats up to date"
     else
