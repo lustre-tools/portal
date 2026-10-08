@@ -195,6 +195,14 @@ def build_config(testing=False):
         # binary; otherwise it is found next to the running interpreter.
         "GC_BIN": _env("GC_BIN") or _default_gc_bin(),
         "GC_CWD": _env("GC_CWD") or None,
+        # A local clone of PUBLIC_PROJECT for `gc graph --conflicts`: the
+        # graph's in-flight changes are fetched into it and trial-merged,
+        # showing which ones no longer apply and which collide. Unset: no
+        # conflict checks. The service writes to it, so under the shipped
+        # units it belongs in DATA_DIR.
+        "GRAPH_CONFLICTS_REPO": (
+            os.path.abspath(_env("GRAPH_CONFLICTS_REPO")) if _env("GRAPH_CONFLICTS_REPO") else None
+        ),
         # Gerrit Promises (portal/promises). Off unless asked for; the
         # Claude stages additionally need the claude CLI and a token
         # (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY) in the environment.

@@ -370,6 +370,9 @@ def _do_run(params, socketio, room, kind, positional, file_id):
         hashtags = params["include_hashtag"].strip()
         if re.match(r"^[\w,\-\.]+$", hashtags):
             cmd.extend(["--include-hashtag", hashtags])
+    conflicts_repo = _conflicts_repo(project, public_project)
+    if conflicts_repo:
+        cmd.extend(["--conflicts", conflicts_repo])
 
     socketio.emit("output", {"line": f"$ gc graph {positional} ...\n"}, room=room)
 
@@ -381,7 +384,8 @@ def _do_run(params, socketio, room, kind, positional, file_id):
             text=True,
             bufsize=1,
             cwd=current_app.config.get("GC_CWD") or None,
-            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            # git must never wait for a password nobody can type.
+            env={**os.environ, "PYTHONUNBUFFERED": "1", "GIT_TERMINAL_PROMPT": "0"},
         )
 
         # Capture the CLI's final JSON result line (raw, pre-sanitize) so we
@@ -498,7 +502,29 @@ _SENSITIVE_PATHS = [
 def _deployment_paths():
     """The directories this install writes to, wherever they are."""
     cfg = current_app.config
-    return (cfg.get("GRAPH_OUTPUT_DIR"), cfg.get("DATA_DIR"), cfg.get("GC_CWD"))
+    repo = cfg.get("GRAPH_CONFLICTS_REPO")
+    return (
+        cfg.get("GRAPH_OUTPUT_DIR"),
+        cfg.get("DATA_DIR"),
+        cfg.get("GC_CWD"),
+        os.path.dirname(repo) if repo else None,
+    )
+
+
+def _conflicts_repo(project, public_project):
+    """The clone `gc graph --conflicts` trial-merges in, or None.
+
+    Only for the public project's graphs: the clone is of that project.
+    A ticket graph's project is known only after the run (``project`` is
+    None); for one that turns out internal, gc cannot fetch its branch
+    into the clone and builds the graph without conflicts."""
+    repo = current_app.config.get("GRAPH_CONFLICTS_REPO")
+    if not repo or (project is not None and project != public_project):
+        return None
+    if not os.path.isdir(repo):
+        logger.warning("GRAPH_CONFLICTS_REPO %s is not a directory: no conflict checks", repo)
+        return None
+    return repo
 
 
 from portal.tools.graph_stats import (  # noqa: E402

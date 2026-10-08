@@ -20,6 +20,7 @@ would silently turn an internal graph into a failed refresh.
 import argparse
 import logging
 import os
+import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
@@ -159,6 +160,48 @@ def _rescan_promises(app):
             logger.exception("[promises %s] rescan failed", number)
 
 
+#: When the conflicts clone has more packs or loose objects than this, the
+#: refresh packs it into one.
+CONFLICTS_REPO_MAX_PACKS = 30
+CONFLICTS_REPO_MAX_LOOSE = 5000
+
+
+def _pack_conflicts_repo(app):
+    """Keep the `gc graph --conflicts` clone packed.
+
+    gc fetches into it without git's automatic maintenance -- a gc started
+    by one graph's fetch could prune the commits another graph is merging,
+    since nothing references them -- so every fetch leaves a pack or loose
+    objects behind. Once there are many, they are packed into one,
+    keeping every object (``--keep-unreachable``): safe while graphs run.
+    """
+    repo = app.config.get("GRAPH_CONFLICTS_REPO")
+    if not repo or not os.path.isdir(repo):
+        return
+
+    def git(*args, timeout=60):
+        return subprocess.run(
+            ["git", "-C", repo, *args],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=timeout,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        ).stdout
+
+    try:
+        counts = dict(
+            line.split(": ", 1) for line in git("count-objects", "-v").splitlines() if ": " in line
+        )
+        packs, loose = int(counts.get("packs", 0)), int(counts.get("count", 0))
+        if packs <= CONFLICTS_REPO_MAX_PACKS and loose <= CONFLICTS_REPO_MAX_LOOSE:
+            return
+        git("repack", "-a", "-d", "--keep-unreachable", "-q", timeout=3600)
+        logger.info("conflicts clone packed (%d packs, %d loose objects before)", packs, loose)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        logger.warning("conflicts clone: packing failed: %s", exc)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="portal-refresh",
@@ -193,6 +236,8 @@ def main(argv=None):
 
     if app.config.get("PROMISES_ENABLED") and not (args.backfill or args.dry_run):
         _rescan_promises(app)
+    if not (args.backfill or args.dry_run):
+        _pack_conflicts_repo(app)
 
     if args.backfill:
         return _backfill(output_dir, app.config["CI_VOTERS"])

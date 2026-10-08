@@ -26,9 +26,11 @@ class FakePopen:
     """
 
     last_cmd = None
+    last_kwargs = None
 
     def __init__(self, cmd, **kwargs):
         FakePopen.last_cmd = cmd
+        FakePopen.last_kwargs = kwargs
         self.returncode = 0
         self.stdout = iter(
             [

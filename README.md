@@ -218,6 +218,29 @@ The bundled pin exists for a reason: the portal reads the last line of
 `gc`'s output to recover a ticket's anchor change. A checkout at any
 other commit is your call.
 
+### Conflicts in the graphs
+
+Give the portal a local clone of the public project and every graph also
+trial-merges its in-flight changes (`gc graph --conflicts`): which ones
+no longer apply on the branch or on master-next, and which two collide
+when both land. The graph gets a "Show conflicts" switch; no form
+changes. Without a clone, no conflict checks run.
+
+```bash
+sudo -u portal git clone --bare https://review.whamcloud.com/fs/lustre-release \
+    /var/lib/portal/lustre-release.git
+echo PORTAL_GRAPH_CONFLICTS_REPO=/var/lib/portal/lustre-release.git | sudo tee -a /etc/portal/portal.env
+sudo systemctl restart portal.service
+```
+
+The graphs fetch into the clone, so it must be the service user's and in
+the data directory: the units let the service write there and nowhere
+else, and hide home directories altogether -- a checkout of your own
+will not do as it is. It adds a few seconds to a graph. Graphs can run at
+the same time on one clone, and the scheduled refresh packs it now and
+then without deleting anything. Graphs of other projects are built
+without conflicts: the clone is of the public project.
+
 ## Gerrit Promises
 
 In review, work is often deferred -- "pre-existing, will fix in a
