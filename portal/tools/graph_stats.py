@@ -14,34 +14,63 @@ DEFAULT_CI_VOTERS = ("maloo", "jenkins")
 
 
 def review_health(node, ci_voters=DEFAULT_CI_VOTERS):
-    """Port of reviewHealth() from the graph HTML's JS.
+    """reviewHealth() of the graph page (gc graph's graph.js), in Python.
+
+    The list must say what the graph says, so this follows the page rule
+    for rule; tests/test_health_parity.py runs the page's own function
+    from the bundled gc on the same nodes and fails when they disagree --
+    the page's rule changes with gc, and this copy once fell behind it
+    (the list showed 14 ready where the graph showed 7).
 
     Returns 'good', 'pending', 'bad_veto', 'bad_other', or
     'bad_<voter>' for a failing vote from one of ``ci_voters``.
     """
     if node.get("status") != "NEW":
         return "pending"
-    rv = node.get("review", {}) or {}
+    rv = node.get("review") or {}
     if rv.get("cr_veto"):
         return "bad_veto"
     if rv.get("verified_fail"):
         fail_voters = [
             (v.get("name") or "").lower()
-            for v in rv.get("verified_votes", [])
-            if v.get("value", 0) < 0
+            for v in rv.get("verified_votes") or []
+            if (v.get("value") or 0) < 0
         ]
         for voter in ci_voters:
             if voter.lower() in fail_voters:
                 return f"bad_{voter.lower()}"
         return "bad_other"
     if rv.get("verified_pass"):
-        author = node.get("author", "")
-        non_author_plus = sum(
-            1 for v in rv.get("cr_votes", []) if v.get("value", 0) > 0 and v.get("name") != author
+        # Every CI has to have voted +1: a run that never fired leaves no
+        # vote at all, and one +1 alone counts as a pass.
+        passers = {
+            (v.get("name") or "").lower()
+            for v in rv.get("verified_votes") or []
+            if (v.get("value") or 0) > 0
+        }
+        if not all(voter.lower() in passers for voter in ci_voters):
+            return "pending"
+        # Gerrit's self-approval rule keys off the owner, not the author.
+        owner = node.get("owner") or node.get("author") or ""
+        non_owner_plus = sum(
+            1
+            for v in rv.get("cr_votes") or []
+            if (v.get("value") or 0) > 0 and v.get("name") != owner
         )
-        if non_author_plus >= 2:
+        # A backport of a master change needs one reviewer, the rest two.
+        if non_owner_plus >= (1 if node.get("is_backport") else 2):
             return "good"
     return "pending"
+
+
+def _counted(node):
+    """Whether a node counts in the graph's figures, as gc counts them
+    (status_counts): an in-flight change the series only sits on (shown
+    dimmed, "unrelated parent") does not, nor does a merged change that
+    is only there to hold up the trunk."""
+    if node.get("unrelated_parent"):
+        return False
+    return not (node.get("status") == "MERGED" and node.get("trunk_structural"))
 
 
 _GRAPH_DATA_MARKER = re.compile(r"const\s+G\s*=\s*")
@@ -119,7 +148,7 @@ def extract_stats_from_html(html_path, ci_voters=DEFAULT_CI_VOTERS):
 
     ready = pending = blocked = 0
     for n in g.get("nodes", []):
-        if n.get("status") != "NEW":
+        if n.get("status") != "NEW" or not _counted(n):
             continue
         h = review_health(n, ci_voters)
         if h == "good":
@@ -210,7 +239,7 @@ def extract_patches(html_path, ci_voters=DEFAULT_CI_VOTERS):
     ready, blocked, open_ids, merged_ids = [], [], [], []
     for n in g.get("nodes", []) or []:
         change = n.get("id")
-        if not isinstance(change, int):
+        if not isinstance(change, int) or not _counted(n):
             continue
         status = n.get("status")
         if status == "MERGED":

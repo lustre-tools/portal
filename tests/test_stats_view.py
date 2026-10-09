@@ -304,7 +304,11 @@ def _node(change, status="NEW", **review):
     }
 
 
-READY = {"verified_pass": True, "cr_votes": [{"name": "a", "value": 1}, {"name": "b", "value": 1}]}
+READY = {
+    "verified_pass": True,
+    "verified_votes": [{"name": "jenkins", "value": 1}, {"name": "maloo", "value": 1}],
+    "cr_votes": [{"name": "a", "value": 1}, {"name": "b", "value": 1}],
+}
 
 
 def test_extract_patches_sorts_open_patches_into_lists(tmp_path):
