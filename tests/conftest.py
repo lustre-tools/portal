@@ -69,6 +69,34 @@ def temp_dirs(tmp_path):
     }
 
 
+@pytest.fixture(autouse=True)
+def no_local_claude(monkeypatch):
+    """No test sees a Claude CLI or a token from the machine it runs on.
+
+    The app looks for the binary once, when it starts. With `claude` on a
+    developer's PATH, tests that need it "ready" passed there and failed
+    in CI, where there is none. A test that needs it asks for
+    ``claude_ready``.
+    """
+    monkeypatch.setattr("portal.promises.claude.find_binary", lambda configured=None: None)
+    for var in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_BINARY"):
+        monkeypatch.delenv(var, raising=False)
+
+
+@pytest.fixture
+def claude_ready(app, monkeypatch):
+    """Claude counts as configured -- a binary and a token -- on the
+    settings the app already built, so the admin's Claude buttons show."""
+    import dataclasses
+
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok")
+    settings = app.extensions["promises"]["settings"]
+    monkeypatch.setattr(
+        settings, "claude", dataclasses.replace(settings.claude, binary="/bin/true")
+    )
+    return settings
+
+
 @pytest.fixture
 def app_env(temp_dirs, monkeypatch):
     """Base environment shared by every app fixture."""

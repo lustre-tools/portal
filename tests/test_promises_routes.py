@@ -277,9 +277,7 @@ def test_claude_buttons_show_only_to_the_admin(client, login, login_admin, store
     assert b"Your call" in client.get("/gerrit_promise/64620").data
 
 
-def test_checking_is_explained_where_unsupported(client, login_admin, store, monkeypatch):
-    monkeypatch.setattr("portal.promises.claude.find_binary", lambda configured=None: "/bin/true")
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok")
+def test_checking_is_explained_where_unsupported(client, login_admin, store, claude_ready):
     seed(store, promise_doc(number=70100, project=INTERNAL, branch="b2_15"))
     login_admin()
     assert b"only supported for" in client.get("/gerrit_promise/70100").data
@@ -390,10 +388,8 @@ def test_unread_threads_are_not_called_judged(client, store):
 
 
 def test_the_per_item_button_says_check_until_there_is_a_verdict(
-    client, login_admin, store, monkeypatch
+    client, login_admin, store, claude_ready
 ):
-    monkeypatch.setattr("portal.promises.claude.find_binary", lambda configured=None: "/bin/true")
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok")
     t = th()
     seed(store, change_doc(threads=[t], classifications={t["id"]: classification(t)}))
     login_admin()
@@ -557,10 +553,8 @@ def test_the_admin_can_ask_for_a_deeper_check(app, client, login_admin, store, c
 
 
 def test_the_page_shows_what_the_check_looked_at_and_related_work(
-    client, login_admin, store, monkeypatch
+    client, login_admin, store, claude_ready
 ):
-    monkeypatch.setattr("portal.promises.claude.find_binary", lambda configured=None: "/bin/true")
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok")
     t = th()
     adj = adjudication(
         t,
@@ -591,3 +585,12 @@ def test_the_page_shows_what_the_check_looked_at_and_related_work(
     assert "67878" in related and "merged" in related, "state as of the last rescan"
     login_admin()
     assert "Check deeper" in client.get("/gerrit_promise/64620").data.decode()
+
+
+def test_without_claude_the_admin_is_told_so(client, login_admin, store):
+    """No binary, no token (as in CI): the page says Claude is not set up
+    instead of offering buttons that cannot work."""
+    seed(store, promise_doc())
+    login_admin()
+    page = client.get("/gerrit_promise/64620").data.decode()
+    assert "Claude is not configured" in page and "Check deeper" not in page
