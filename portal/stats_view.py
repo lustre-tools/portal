@@ -256,21 +256,17 @@ def group_totals(entries, now):
     }
 
 
-def entry_view(entry, now):
-    """Everything the list needs to show one graph, formatted.
-
-    ``has_summary`` is False for graphs generated before summaries
-    existed; the template then falls back to the older counts.
+def _figures(stats, s, now):
+    """The formatted figures of one set of changes: ``stats`` (the stored
+    counts) and ``s`` (gc's summary of them; not a dict for graphs from
+    before summaries). Used for the whole graph and for the changes of
+    the hashtags or topics it follows alike.
     """
-    stats = entry.get("stats") or {}
-    s = entry.get("summary")
     view = {
         "has_summary": isinstance(s, dict),
-        "generated_epoch": _generated_epoch(entry),
         "ready": _num(stats.get("ready")),
         "in_review": _num(stats.get("pending")),
         "blocked": _num(stats.get("blocked")),
-        **_patch_lists(entry, now),
     }
     if not view["has_summary"]:
         view.update(
@@ -328,9 +324,45 @@ def entry_view(entry, now):
             "spark": bars([v for _, v in months], 48, 14),
             "chart": bars([v for _, v in months], 240, 64, gap=4, floor=1.5),
             "month_max": max((v for _, v in months), default=0),
+            "as_of": as_of,
             "as_of_ago": fmt_ago(now - as_of) if as_of is not None else None,
         }
     )
-    if as_of is not None:
-        view["generated_epoch"] = as_of
+    return view
+
+
+def focus_label(focus):
+    """ "#218_review_priority, topic ec2" -- what a graph follows."""
+    return ", ".join(
+        [f"#{h}" for h in focus.get("hashtags") or []]
+        + [f"topic {t}" for t in focus.get("topics") or []]
+    )
+
+
+def entry_view(entry, now):
+    """Everything the list needs to show one graph, formatted.
+
+    ``has_summary`` is False for graphs generated before summaries
+    existed; the template then falls back to the older counts.
+
+    ``focus`` is the same set of figures for the changes carrying the
+    hashtags or topics the graph follows, when it is about them (built
+    from a hashtag or topic, or its anchor carries one); the row leads
+    with those, the details keep the whole graph's. None otherwise.
+    """
+    view = {
+        "generated_epoch": _generated_epoch(entry),
+        **_patch_lists(entry, now),
+        **_figures(entry.get("stats") or {}, entry.get("summary"), now),
+    }
+    if view.get("as_of") is not None:
+        view["generated_epoch"] = view["as_of"]
+
+    f = entry.get("focus")
+    view["focus"] = None
+    if isinstance(f, dict) and f.get("applies"):
+        view["focus"] = {
+            **_figures(f.get("stats") or {}, f.get("summary"), now),
+            "label": focus_label(f),
+        }
     return view

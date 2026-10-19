@@ -600,6 +600,10 @@ a { color: var(--primary); }
 .graph-table td.col-labels .label-chip { margin: 0.1rem 0.15rem 0.1rem 0; }
 .graph-table .sub { display: block; font-size: 0.8rem; color: var(--muted); }
 .graph-table .sub.good { color: var(--c-ready); font-weight: 550; }
+/* The hashtag or topic a row's figures are for. */
+.graph-table .sub.focus-label { max-width: 11rem; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detail-note { margin: 0 0 0.6rem; font-size: 0.9rem; color: var(--muted); }
+.detail-note b { color: var(--fg); font-weight: 600; }
 .trend-cell { display: inline-flex; align-items: center; gap: 0.35rem; }
 .trend { font-size: 0.72rem; width: 0.8rem; text-align: center; }
 .trend-up { color: var(--success); }

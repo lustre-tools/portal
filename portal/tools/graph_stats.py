@@ -206,6 +206,77 @@ def extract_summary(html_path):
     return {k: summary.get(k) for k in SUMMARY_KEYS if k in summary}
 
 
+def _in_focus(node, hashtags, topics):
+    """gc's in_focus(): the change carries an asked hashtag or topic."""
+    return bool(set(node.get("hashtags") or []) & set(hashtags)) or (
+        bool(node.get("topic")) and node["topic"] in topics
+    )
+
+
+def extract_focus(html_path, ci_voters=DEFAULT_CI_VOTERS):
+    """The figures for the hashtags and topics a graph was asked to follow
+    (``hashtag:NAME`` / ``topic:NAME`` graphs, --include-hashtag,
+    --include-topic): gc's ``G.stats.focus``. None when nothing was asked
+    for, or the graph predates it.
+
+    gc counts the changes carrying them (status counts and a summary with
+    the same keys as the whole graph's); the ready / in review / blocked
+    split is the portal's, from those changes, by the same rule as for
+    the whole graph. ``applies`` says whether the list should lead with
+    these figures: the graph was built from the hashtag or topic, or its
+    anchor carries one -- then it is what the graph is about.
+    """
+    g = _load_graph_data(html_path)
+    if g is None:
+        return None
+    focus = (g.get("stats") or {}).get("focus")
+    if not isinstance(focus, dict):
+        return None
+    hashtags = [str(h) for h in focus.get("hashtags") or [] if h]
+    topics = [str(t) for t in focus.get("topics") or [] if t]
+    nodes = g.get("nodes") or []
+    ready = pending = blocked = 0
+    for n in nodes:
+        if (
+            n.get("status") != "NEW"
+            or n.get("trunk_structural")
+            or n.get("unrelated_parent")
+            or not _in_focus(n, hashtags, topics)
+        ):
+            continue
+        h = review_health(n, ci_voters)
+        if h == "good":
+            ready += 1
+        elif h == "pending":
+            pending += 1
+        else:
+            blocked += 1
+    anchor = next((n for n in nodes if n.get("id") == g.get("anchor")), None)
+    sc = focus.get("status_counts") or {}
+    summary = focus.get("summary")
+    return {
+        "hashtags": hashtags,
+        "topics": topics,
+        "on_by_default": bool(focus.get("on_by_default")),
+        "applies": bool(focus.get("on_by_default"))
+        or bool(anchor and _in_focus(anchor, hashtags, topics)),
+        "stats": {
+            "node_count": focus.get("node_count") or 0,
+            "inflight": sc.get("NEW", 0),
+            "ready": ready,
+            "pending": pending,
+            "blocked": blocked,
+            "merged": sc.get("MERGED", 0),
+            "abandoned": sc.get("ABANDONED", 0),
+        },
+        "summary": (
+            {k: summary.get(k) for k in SUMMARY_KEYS if k in summary}
+            if isinstance(summary, dict)
+            else None
+        ),
+    }
+
+
 #: Longest subject kept per patch; the list shows one line of it.
 SUBJECT_MAX = 120
 

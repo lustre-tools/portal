@@ -189,6 +189,10 @@ document.addEventListener("DOMContentLoaded", function () {
   // of a number/URL, otherwise the raw input.
   function extractChangeNum(input) {
     var s = (input || "").trim();
+    // hashtag:NAME, #NAME, topic:NAME -> hashtag-NAME / topic-NAME, the
+    // graph id the server derives (_parse_identifier); before the ticket.
+    var h = s.match(/^(?:(hashtag|topic)[:\-]|#)([A-Za-z0-9_.\-]{1,100})$/i);
+    if (h) return (h[1] ? h[1].toLowerCase() : "hashtag") + "-" + h[2];
     var up = s.toUpperCase();
     if (/^[A-Z][A-Z0-9]*-\d+$/.test(up)) return up;
     var m = s.match(/(\d+)\s*$/);

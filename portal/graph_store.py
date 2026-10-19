@@ -26,18 +26,20 @@ DEFAULT_TZ = ZoneInfo("UTC")
 _KEEP = object()
 DEFAULT_ANCHOR = time(8, 0)
 
-# A graph is keyed either by a numeric Gerrit change number (e.g. "62796")
-# or, in ticket mode, by an uppercase ticket (e.g. "LU-19921"). The two
-# forms are regex-disjoint -- a ticket always has a letter prefix -- so a
-# ticket graph "LU-19921.html" never collides with change 19921's
-# "19921.html".
-GRAPH_ID_PATTERN = r"(?:\d+|[A-Z][A-Z0-9]*-\d+)"
+# A graph is keyed by a numeric Gerrit change number (e.g. "62796"), in
+# ticket mode by an uppercase ticket (e.g. "LU-19921"), and for the
+# changes carrying a hashtag or topic by "hashtag-NAME" / "topic-NAME".
+# The forms are regex-disjoint -- a ticket always has an uppercase letter
+# prefix and digits after its dash, the others a lowercase word -- so no
+# graph's file ever collides with another kind's. NAME is kept to
+# characters that are safe in a URL and a file name.
+GRAPH_ID_PATTERN = r"(?:\d+|[A-Z][A-Z0-9]*-\d+|(?:hashtag|topic)-[A-Za-z0-9_.-]{1,100})"
 GRAPH_ID_RE = re.compile(rf"^{GRAPH_ID_PATTERN}$")
 GRAPH_FILE_RE = re.compile(rf"^({GRAPH_ID_PATTERN})\.html$")
 
 
 def is_valid_graph_id(value):
-    """True if value is a valid graph id (numeric change or ticket)."""
+    """True if value is a valid graph id (change, ticket, hashtag or topic)."""
     return bool(GRAPH_ID_RE.match(str(value)))
 
 
@@ -122,6 +124,7 @@ def add_entry(
     tz=DEFAULT_TZ,
     summary=_KEEP,
     patches=_KEEP,
+    focus=_KEEP,
 ):
     """Insert or replace the entry for ``change_number``.
 
@@ -131,7 +134,8 @@ def add_entry(
     it after a regeneration -- ``None`` then means the new graph has
     none, and any old one is dropped. Leave it out for a metadata-only
     edit, which keeps the stored one. ``patches`` (the ready/blocked
-    lists and id sets) follows the same rule.
+    lists and id sets) and ``focus`` (the figures for the hashtags and
+    topics the graph follows) follow the same rule.
     """
     key = str(change_number)
     entry = {}
@@ -176,7 +180,7 @@ def add_entry(
             entry["stats"] = stats
         elif existing and "stats" in existing:
             entry["stats"] = existing["stats"]
-        for field, value in (("summary", summary), ("patches", patches)):
+        for field, value in (("summary", summary), ("patches", patches), ("focus", focus)):
             if value is _KEEP:
                 if existing and field in existing:
                     entry[field] = existing[field]
@@ -297,11 +301,13 @@ def transfer_schedule(output_dir, from_change, to_change):
     _update(output_dir, mutate)
 
 
-def set_derived(output_dir, change_number, stats=None, summary=None, patches=None):
+def set_derived(output_dir, change_number, stats=None, summary=None, patches=None, focus=_KEEP):
     """Store stats and summary re-read from an existing graph file.
 
     Touches nothing else -- not the generation time, not the schedule --
-    so a backfill is invisible apart from the numbers it adds.
+    so a backfill is invisible apart from the numbers it adds. ``focus``
+    is replaced when given, None dropping it: the file says whether the
+    graph follows a hashtag.
     """
     key = str(change_number)
 
@@ -314,6 +320,11 @@ def set_derived(output_dir, change_number, stats=None, summary=None, patches=Non
                     e["summary"] = summary
                 if patches:
                     e["patches"] = patches
+                if focus is not _KEEP:
+                    if focus:
+                        e["focus"] = focus
+                    else:
+                        e.pop("focus", None)
                 return entries
         return None
 

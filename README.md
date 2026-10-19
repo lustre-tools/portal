@@ -7,10 +7,14 @@ Python toolchain to look at a patch series.
 It ships with one tool and can host more:
 
 - **Gerrit Change Graph** — an interactive DAG of a patch series.
-  Give it a change number, a Gerrit URL or a ticket (`LU-12345`) and it
-  renders the whole topology: dependencies, branches, abandoned forks,
-  stale patchsets, review state and CI results. Graphs are saved, can be
-  labelled and searched, and can refresh themselves on a schedule.
+  Give it a change number, a Gerrit URL, a ticket (`LU-12345`), or a
+  hashtag or topic (`hashtag:NAME`, `#NAME`, `topic:NAME`) and it renders
+  the whole topology: dependencies, branches, abandoned forks, stale
+  patchsets, review state and CI results. Graphs are saved, can be
+  labelled and searched, and can refresh themselves on a schedule. A graph
+  that follows a hashtag or topic -- built from one, or from a change that
+  carries one named under "Include hashtags/topics" -- shows the figures of
+  just those changes in the list, and the whole graph's when expanded.
 - **Gerrit Dashboard** — optional, embedded from
   [llm_code_and_review_tools][tools]. A per-user attention board of
   what is waiting on you.
@@ -166,6 +170,7 @@ journalctl -u portal.service -f
 
 systemctl list-timers portal-refresh.timer   # scheduled refreshes
 portal-refresh --dry-run                     # what is due right now
+portal-refresh --graph 62796 hashtag-NAME    # regenerate these, scheduled or not
 ```
 
 Upgrading:

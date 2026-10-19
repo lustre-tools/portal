@@ -46,19 +46,32 @@ _BRANCH_RE = re.compile(r"^[\w][\w./\-]*$")
 _MAX_EXTRA_TICKETS = 10
 
 
+# hashtag:NAME, #NAME, topic:NAME -- and hashtag-NAME / topic-NAME, the
+# graph's own id, which a scheduled refresh and the Rerun button replay.
+# NAME as for --include-hashtag, and short enough for a file name.
+_SEARCH_RE = re.compile(r"^(?:(hashtag|topic)[:-]|#)([A-Za-z0-9_.-]{1,100})$", re.IGNORECASE)
+
+
 def _parse_identifier(raw):
     """Classify the graph identifier the user submitted.
 
     Returns (kind, positional, file_id):
-      - kind: "ticket", "number", or "url"; None if the input is invalid.
+      - kind: "ticket", "number", "url", "hashtag" or "topic"; None if the
+        input is invalid.
       - positional: the argument passed to `gc graph` (uppercased ticket,
-        the number, or the URL verbatim).
+        the number, the URL verbatim, or hashtag:NAME / topic:NAME).
       - file_id: the index key / output filename stem (uppercased ticket,
-        or the numeric change number — trailing digits for a URL).
+        the numeric change number -- trailing digits for a URL -- or
+        hashtag-NAME / topic-NAME).
     """
     s = (raw or "").strip()
     if not s:
         return None, None, None
+    # Before the ticket: "hashtag-123" would look like one once uppercased.
+    m = _SEARCH_RE.match(s)
+    if m:
+        kind = (m.group(1) or "hashtag").lower()
+        return kind, f"{kind}:{m.group(2)}", f"{kind}-{m.group(2)}"
     up = s.upper()
     if _TICKET_RE.match(up):
         return "ticket", up, up
@@ -70,6 +83,16 @@ def _parse_identifier(raw):
             return None, None, None
         return "url", s, m.group(1)
     return None, None, None
+
+
+#: Graphs of the changes carrying a hashtag or topic (gc graph hashtag:NAME).
+_SEARCH_KINDS = ("hashtag", "topic")
+
+
+def _search_name(positional):
+    """ "#NAME" or "topic NAME" for hashtag:NAME / topic:NAME."""
+    kind, _, value = positional.partition(":")
+    return f"#{value}" if kind == "hashtag" else f"topic {value}"
 
 
 def _normalize_tickets(raw, cap=_MAX_EXTRA_TICKETS):
@@ -132,7 +155,8 @@ def run_gc_graph(params, socketio, room):
         socketio.emit(
             "output",
             {
-                "line": "Error: invalid input. Enter a change number, Gerrit URL, or ticket (e.g. LU-12345).\n"
+                "line": "Error: invalid input. Enter a change number, Gerrit URL, ticket (e.g. "
+                "LU-12345), hashtag:NAME, #NAME or topic:NAME.\n"
             },
             room=room,
         )
@@ -201,24 +225,23 @@ def _do_run(params, socketio, room, kind, positional, file_id):
     branch = ""
     extra_tickets = ""
 
-    if kind == "ticket":
-        # Ticket mode: there is no single change to pre-flight. The project
-        # (public vs internal) is classified after generation from the
-        # produced graph's node projects.
-        ticket = positional  # already uppercased
+    searched = kind in _SEARCH_KINDS
+    if kind == "ticket" or searched:
+        # Ticket, hashtag and topic mode: gc picks the anchor, so there is
+        # no single change to pre-flight. The project (public vs internal)
+        # is classified after generation from the produced graph's node
+        # projects.
+        ticket = "" if searched else positional  # already uppercased
         subject = ""
         project = None
         branch = (params.get("branch", "") or "").strip()
         if branch and not _BRANCH_RE.match(branch):
             branch = ""
         extra_tickets = _normalize_tickets(params.get("ticket", ""))
+        what = positional.replace(":", " ", 1) if searched else f"ticket {ticket}"
         socketio.emit(
             "output",
-            {
-                "line": f"Resolving ticket {ticket}"
-                + (f" on branch {branch}" if branch else "")
-                + "...\n"
-            },
+            {"line": f"Resolving {what}" + (f" on branch {branch}" if branch else "") + "...\n"},
             room=room,
         )
     else:
@@ -297,6 +320,9 @@ def _do_run(params, socketio, room, kind, positional, file_id):
     # to the ticket id for ticket-mode graphs (subject is filled in post-run).
     custom_name = params.get("name", "").strip()
     name = custom_name or subject or (ticket if kind == "ticket" else "")
+    if searched and not custom_name:
+        # What gc calls such a graph too.
+        name = _search_name(positional)
 
     # Normalize labels: split, lowercase, strip, allow [a-z0-9._-], dedupe
     labels = _normalize_labels(params.get("labels", ""))
@@ -330,11 +356,11 @@ def _do_run(params, socketio, room, kind, positional, file_id):
     if custom_name:
         cmd.extend(["--name", custom_name])
 
-    if kind == "ticket":
-        # Ticket mode never uses --cross-project. A public ticket must not
-        # follow into other projects -- that would pull internal nodes into
-        # HTML anyone can read -- and a privileged ticket graph is already
-        # scoped to its own project by the anchor's branch.
+    if kind == "ticket" or searched:
+        # Ticket, hashtag and topic mode never use --cross-project. A public
+        # one must not follow into other projects -- that would pull
+        # internal nodes into HTML anyone can read -- and a privileged one
+        # is already scoped to its own project by the anchor's branch.
         if branch:
             cmd.extend(["--branch", branch])
         if extra_tickets:
@@ -402,7 +428,7 @@ def _do_run(params, socketio, room, kind, positional, file_id):
 
         if process.returncode == 0:
             anchor_change = None
-            if kind == "ticket":
+            if kind == "ticket" or searched:
                 # Learn the resolved anchor change number from the CLI's JSON.
                 if last_json:
                     try:
@@ -425,7 +451,9 @@ def _do_run(params, socketio, room, kind, positional, file_id):
                 project = classified or public_project
                 if anchor_subject:
                     subject = anchor_subject
-                    if not custom_name:
+                    # A hashtag or topic graph keeps its "#NAME": the
+                    # anchor is only where gc started.
+                    if not custom_name and not searched:
                         name = anchor_subject
 
             # Store in index with metadata and params for re-running
@@ -436,6 +464,7 @@ def _do_run(params, socketio, room, kind, positional, file_id):
             stats = extract_stats_from_html(output_path, current_app.config["CI_VOTERS"])
             summary = extract_summary(output_path)
             patches = extract_patches(output_path, current_app.config["CI_VOTERS"])
+            focus = extract_focus(output_path, current_app.config["CI_VOTERS"])
             add_entry(
                 output_dir,
                 file_id,
@@ -447,6 +476,7 @@ def _do_run(params, socketio, room, kind, positional, file_id):
                 stats=stats,
                 summary=summary,
                 patches=patches,
+                focus=focus,
                 project=project,
                 anchor_change_number=anchor_change,
                 tz=current_app.config["TIMEZONE"],
@@ -529,6 +559,7 @@ def _conflicts_repo(project, public_project):
 
 from portal.tools.graph_stats import (  # noqa: E402
     classify_graph_project,
+    extract_focus,
     extract_patches,
     extract_stats_from_html,
     extract_summary,
@@ -587,19 +618,22 @@ def init_gc_graph_tool():
             id="gc-graph",
             name="Gerrit Change Graph",
             description="Interactive DAG visualization of related Gerrit changes. "
-            "Enter a change number, URL, or ticket (e.g. LU-12345) to generate an "
-            "interactive graph showing the full topology including branches, abandoned "
-            "forks, and stale patchsets. "
+            "Enter a change number, URL, ticket (e.g. LU-12345), or a hashtag or topic "
+            "(hashtag:NAME, #NAME, topic:NAME) to generate an interactive graph showing "
+            "the full topology including branches, abandoned forks, and stale patchsets. "
             "Anyone signed in may graph the public project; other projects "
             "need an account with the 'internal' role.",
             parameters=[
                 ToolParam(
                     name="change_number",
-                    label="Change / URL / Ticket",
+                    label="Change / URL / Ticket / Hashtag",
                     type="text",
                     required=True,
-                    placeholder="62796 or LU-12345",
-                    help_text="Gerrit change number, full URL, or a ticket (e.g. LU-12345). Projects other than the public one need the 'internal' role.",
+                    placeholder="62796, LU-12345 or hashtag:218_review_priority",
+                    help_text="Gerrit change number, full URL, a ticket (e.g. LU-12345), or "
+                    "hashtag:NAME, #NAME or topic:NAME for the changes carrying that hashtag or "
+                    "topic -- the list then counts those changes. Projects other than the public "
+                    "one need the 'internal' role.",
                 ),
                 ToolParam(
                     name="name",
@@ -624,11 +658,11 @@ def init_gc_graph_tool():
                 ),
                 ToolParam(
                     name="branch",
-                    label="Ticket branch (optional)",
+                    label="Branch (optional)",
                     type="text",
                     placeholder="master",
                     internal_only=True,
-                    help_text="Only used when the identifier is a ticket. Defaults to master; choosing another branch needs the 'internal' role.",
+                    help_text="Only used for a ticket, hashtag or topic. Defaults to master; choosing another branch needs the 'internal' role.",
                 ),
                 ToolParam(
                     name="comments",
@@ -659,14 +693,17 @@ def init_gc_graph_tool():
                     label="Include topics",
                     type="text",
                     placeholder="topic1,topic2",
-                    help_text="Comma-separated additional topics to include",
+                    help_text="Comma-separated additional topics to include and follow, "
+                    "like hashtags.",
                 ),
                 ToolParam(
                     name="include_hashtag",
                     label="Include hashtags",
                     type="text",
                     placeholder="hash1,hash2",
-                    help_text="Comma-separated additional hashtags to include",
+                    help_text="Comma-separated additional hashtags to include and follow: "
+                    "the graph can show just their changes, and when the anchor carries one the "
+                    "list counts those changes.",
                 ),
             ],
             run_fn=run_gc_graph,

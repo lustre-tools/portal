@@ -31,7 +31,12 @@ from portal.graph_store import (
     next_refresh_time,
     set_derived,
 )
-from portal.tools.graph_stats import extract_patches, extract_stats_from_html, extract_summary
+from portal.tools.graph_stats import (
+    extract_focus,
+    extract_patches,
+    extract_stats_from_html,
+    extract_summary,
+)
 
 logger = logging.getLogger("portal.refresh")
 
@@ -115,9 +120,17 @@ def _backfill(output_dir, ci_voters):
         stats = extract_stats_from_html(path, ci_voters)
         summary = extract_summary(path)
         patches = extract_patches(path, ci_voters)
+        focus = extract_focus(path, ci_voters)
         if summary:
             with_summary += 1
-        set_derived(output_dir, e["change_number"], stats=stats, summary=summary, patches=patches)
+        set_derived(
+            output_dir,
+            e["change_number"],
+            stats=stats,
+            summary=summary,
+            patches=patches,
+            focus=focus,
+        )
     logger.info(
         "backfilled %d graph(s); %d carry a summary (the rest predate it "
         "and get one on their next regeneration)",
@@ -223,6 +236,14 @@ def main(argv=None):
         action="store_true",
         help="refresh every scheduled entry, not only the due ones",
     )
+    parser.add_argument(
+        "--graph",
+        nargs="+",
+        metavar="ID",
+        help="regenerate these graphs (change number, ticket, hashtag-NAME, "
+        "topic-NAME) with their stored options, scheduled or not; their "
+        "schedules are left as they are",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -242,7 +263,14 @@ def main(argv=None):
     if args.backfill:
         return _backfill(output_dir, app.config["CI_VOTERS"])
 
-    if args.all:
+    if args.graph:
+        by_id = {e["change_number"]: e for e in _load_index(output_dir)}
+        unknown = [g for g in args.graph if g not in by_id]
+        if unknown:
+            logger.error("no such graph: %s", ", ".join(unknown))
+            return 2
+        due = [by_id[g] for g in dict.fromkeys(args.graph)]
+    elif args.all:
         due = [e for e in _load_index(output_dir) if e.get("refresh_interval_hours")]
     else:
         due = get_due_entries(output_dir, tz=tz)
@@ -259,7 +287,8 @@ def main(argv=None):
     with ThreadPoolExecutor(max_workers=workers) as pool:
         results = list(pool.map(lambda e: _refresh_one(app, e), due))
 
-    _bump_schedules(output_dir, [key for key, _ in results], tz, anchor)
+    if not args.graph:
+        _bump_schedules(output_dir, [key for key, _ in results], tz, anchor)
 
     failed = [key for key, ok in results if not ok]
     if failed:
