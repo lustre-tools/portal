@@ -10,3 +10,77 @@
 <a href="{{ gerrit_url }}/{{ p.id }}" target="_blank" rel="noopener" title="Open change {{ p.id }} in Gerrit">{{ p.id }}</a>{% if p.ticket %} <span class="muted">{{ p.ticket }}</span>{% endif %}
 {%- else -%}{{ missing }}{%- endif -%}
 {%- endmacro %}
+
+{#- The cards of one set of figures (an entry_view(), or its ``focus``):
+    patches, the last 30 days, timings, and merges per month. -#}
+{% macro stat_grid(f) -%}
+                    <div class="detail-body">
+                    <div class="detail-grid">
+                        <section class="stat-card stat-wide">
+                            <h3>Patches</h3>
+                            <p class="stat-big">{{ f.patches if f.patches is not none else missing }}</p>
+                            <div class="compose" role="img" aria-label="{{ f.open }} open, {{ f.merged }} merged, {{ f.abandoned }} abandoned">
+                                <span class="c-open" style="width: {{ '%.2f'|format(f.share.open) }}%"></span><span class="c-merged" style="width: {{ '%.2f'|format(f.share.merged) }}%"></span><span class="c-abandoned" style="width: {{ '%.2f'|format(f.share.abandoned) }}%"></span>
+                            </div>
+                            <p class="legend">
+                                <span class="stat-open"><i class="dot c-open"></i>{{ f.open }} open</span>
+                                <span class="stat-merged"><i class="dot c-merged"></i>{{ f.merged }} merged</span>
+                                <span><i class="dot c-abandoned"></i>{{ f.abandoned }} abandoned</span>
+                            </p>
+                            {% if f.ready is not none %}
+                            <p class="stat-note">Of the open: <span class="stat-ready">{{ f.ready }} ready</span>, {{ f.in_review }} in review, {{ f.blocked }} blocked</p>
+                            {% endif %}
+                        </section>
+                        <section class="stat-card">
+                            <h3>Last 30 days</h3>
+                            <p class="stat-big stat-merged">{{ f.merged_30d }} <small>merged</small></p>
+                            <p class="stat-note">
+                                <span class="trend trend-{{ f.trend }}">{% if f.trend == 'up' %}&#9650;{% elif f.trend == 'down' %}&#9660;{% else %}&ndash;{% endif %}</span>
+                                {{ f.merged_prev_30d }} in the 30 days before
+                            </p>
+                            <p class="stat-note">{{ f.opened_30d }} opened &middot; {{ f.abandoned_30d }} abandoned</p>
+                        </section>
+                        <section class="stat-card">
+                            <h3>Upload to merge</h3>
+                            <p class="stat-big">{{ f.ttm_median }} <small>median</small></p>
+                            <p class="stat-note">p90 {{ f.ttm_p90 }} &middot; {{ f.ttm_count }} merged</p>
+                        </section>
+                        <section class="stat-card">
+                            <h3>First review</h3>
+                            <p class="stat-big">{{ f.ttfr_median }} <small>median</small></p>
+                            <p class="stat-note">p90 {{ f.ttfr_p90 }}</p>
+                        </section>
+                        <section class="stat-card">
+                            <h3>Patchsets to merge</h3>
+                            <p class="stat-big">{{ f.ps_median }} <small>median</small></p>
+                            <p class="stat-note">most {{ f.ps_max }}</p>
+                        </section>
+                        <section class="stat-card">
+                            <h3>Oldest in-flight</h3>
+                            <p class="stat-big">{{ f.oldest_open.age if f.oldest_open else missing }}</p>
+                            <p class="stat-note">{{ patch_link(f.oldest_open) }}</p>
+                        </section>
+                        <section class="stat-card">
+                            <h3>Longest idle</h3>
+                            <p class="stat-big">{{ f.longest_idle.age if f.longest_idle else missing }}</p>
+                            <p class="stat-note">{{ patch_link(f.longest_idle) }}</p>
+                        </section>
+                    </div>
+                        <section class="stat-card stat-chart">
+                            <h3>Merged per month</h3>
+                            <svg class="chart" viewBox="0 -12 240 90" role="img" aria-label="Merged per month over the last 12 months">
+                                <line x1="0" y1="64.5" x2="240" y2="64.5" class="axis"/>
+                                {% for b in f.chart %}
+                                {%- set m = f.months[loop.index0] -%}
+                                <g>
+                                    <title>{{ m.label }}: {{ b.value }} merged</title>
+                                    <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" class="{{ 'bar-empty' if b.empty else 'bar' }}"/>
+                                    {% if b.value %}<text x="{{ b.x + b.w / 2 }}" y="{{ b.y - 3 }}" class="bar-value">{{ b.value }}</text>{% endif %}
+                                    <text x="{{ b.x + b.w / 2 }}" y="76" class="bar-label">{{ m.short }}</text>
+                                </g>
+                                {% endfor %}
+                            </svg>
+                            <p class="stat-note">{{ f.months[0].label if f.months else '' }} &ndash; {{ f.months[-1].label if f.months else '' }}</p>
+                        </section>
+                    </div>
+{%- endmacro %}

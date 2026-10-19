@@ -364,5 +364,10 @@ def entry_view(entry, now):
         view["focus"] = {
             **_figures(f.get("stats") or {}, f.get("summary"), now),
             "label": focus_label(f),
+            # One pill each, linking to the Gerrit search.
+            "tags": [
+                {"label": f"#{h}", "kind": "hashtag", "value": h} for h in f.get("hashtags") or []
+            ]
+            + [{"label": f"topic {t}", "kind": "topic", "value": t} for t in f.get("topics") or []],
         }
     return view

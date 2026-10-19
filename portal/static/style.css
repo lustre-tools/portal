@@ -600,10 +600,21 @@ a { color: var(--primary); }
 .graph-table td.col-labels .label-chip { margin: 0.1rem 0.15rem 0.1rem 0; }
 .graph-table .sub { display: block; font-size: 0.8rem; color: var(--muted); }
 .graph-table .sub.good { color: var(--c-ready); font-weight: 550; }
-/* The hashtag or topic a row's figures are for. */
-.graph-table .sub.focus-label { max-width: 11rem; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.detail-note { margin: 0 0 0.6rem; font-size: 0.9rem; color: var(--muted); }
-.detail-note b { color: var(--fg); font-weight: 600; }
+/* A hashtag or topic a graph was built from or follows: beside the change
+   id in the row, and heading its own figures when the row is expanded. */
+.focus-pill {
+    display: inline-block; max-width: 14rem; padding: 0 0.45rem; border-radius: 999px;
+    background: #f3eefe; color: #6b3fd4; border: 1px solid #ddd0fb;
+    font-size: 0.78rem; font-weight: 550; line-height: 1.5;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;
+}
+a.focus-pill { text-decoration: none; }
+a.focus-pill:hover { background: #e9e0fd; }
+.entry-meta .focus-pill { margin-left: 0.35rem; }
+.figures-title { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0.2rem 0 0.6rem; font-size: 0.95rem; font-weight: 600; }
+.figures-title .focus-pill { font-size: 0.85rem; }
+.figures-title .figures-sub { color: var(--muted); font-weight: 400; }
+.figures-title.figures-all { margin-top: 1.4rem; padding-top: 1rem; border-top: 1px solid var(--border); }
 .trend-cell { display: inline-flex; align-items: center; gap: 0.35rem; }
 .trend { font-size: 0.72rem; width: 0.8rem; text-align: center; }
 .trend-up { color: var(--success); }

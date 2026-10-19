@@ -155,18 +155,32 @@ def test_backfill_reads_and_drops_focus(app, tmp_path, graph_dir):
 
 
 def test_the_list_page_shows_both(client, tmp_path, graph_dir):
+    """The row counts the hashtag's changes and names the hashtag beside
+    the change it was built from, not in the figures; expanded, each set
+    of figures sits under its own heading."""
     f = extract_focus(write_graph(tmp_path, graph()))
     add_entry(
         graph_dir, "67069", name="Prio", stats={"inflight": 3}, summary=sample_summary(), focus=f
     )
     add_entry(graph_dir, "100", name="Plain", summary=sample_summary())
     body = client.get("/gerrit_vis/").data.decode()
-    prio = body.split('id="g-67069"', 1)[1].split("</tbody>", 1)[0]
-    assert f'class="sub focus-label">#{TAG}<' in prio
-    assert "The row counts the 2 changes with" in prio and "all 20 changes in the graph" in prio
-    assert 'data-open="1"' in body.split('id="g-67069"', 1)[0].rsplit("<tbody", 1)[1] + prio[:200]
+    head, prio = body.split('id="g-67069"', 1)
+    prio = prio.split("</tbody>", 1)[0]
+    row, detail = prio.split('class="entry-detail"', 1)
+    meta = row.split('class="entry-meta"', 1)[1].split("</div>", 1)[0]
+    assert "/+/67069" in meta and 'class="focus-pill"' in meta and f"#{TAG}</a>" in meta
+    figures = row.split('class="col-num col-status"', 1)[1].split('class="col-updated"', 1)[0]
+    assert f"#{TAG}<" not in figures, "the hashtag is not in the number cells"
+    assert "Only the 2 changes with" in figures, "but the tooltip says what they count"
+    assert 'data-open="1"' in head.rsplit("<tbody", 1)[1] + row[:300]
+    titles = detail.split('class="figures-title')
+    assert len(titles) == 3, "one heading for the hashtag's changes, one for the whole graph"
+    assert (
+        f"#{TAG}" in titles[1] and "2 changes" in titles[1] and "what the row counts" in titles[1]
+    )
+    assert "Whole graph &middot; 20 changes" in titles[2]
     plain = body.split('id="g-100"', 1)[1].split("</tbody>", 1)[0]
-    assert "focus-label" not in plain and "The row counts" not in plain
+    assert "focus-pill" not in plain and "figures-title" not in plain
 
 
 # ---------- hashtag and topic graphs ----------

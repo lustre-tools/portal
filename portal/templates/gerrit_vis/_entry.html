@@ -4,7 +4,7 @@
     endpoint after a rerun, so the two can never drift apart. Needs
     ``e`` (the index entry) and ``v`` (its entry_view()).
 -#}
-{%- from "gerrit_vis/_macros.html" import spark, patch_link with context -%}
+{%- from "gerrit_vis/_macros.html" import spark, patch_link, stat_grid with context -%}
     {%- set proj = e.get('project') or public_project -%}
     {%- set gerrit_change = e.change_number if e.change_number.isdigit() else e.get('anchor_change_number') -%}
     {#- A hashtag or topic graph ("hashtag-NAME"): its Gerrit link is the search. -#}
@@ -35,11 +35,16 @@
             <td class="col-name">
                 <a class="entry-name" href="{{ graph_href }}" target="_blank" title="{{ e.get('subject', '') }}">{{ display_name }}</a>
                 <div class="entry-meta">
+                    {#- What the graph was built from: a change, and the hashtags or
+                        topics it follows -- or a hashtag or topic alone. -#}
                     {%- if search -%}
-                    <a href="{{ gerrit_url }}/q/{{ search[0] }}:{{ search[1]|urlencode }}" target="_blank" rel="noopener" title="The changes with this {{ search[0] }} in Gerrit">{{ search[0] }}:{{ search[1] }}</a>
                     {%- elif gerrit_change -%}
                     <a href="{{ gerrit_url }}/c/{{ proj }}/+/{{ gerrit_change }}" target="_blank" rel="noopener" title="Open the anchor change in Gerrit ({{ proj }})">{{ gerrit_change }}</a>
                     {%- else -%}<span>{{ e.change_number }}</span>{%- endif -%}
+                    {%- set tags = v.focus.tags if v.focus else ([{'label': ('#' ~ search[1]) if search[0] == 'hashtag' else ('topic ' ~ search[1]), 'kind': search[0], 'value': search[1]}] if search else []) -%}
+                    {%- for t in tags %}
+                    <a class="focus-pill" href="{{ gerrit_url }}/q/{{ t.kind }}:{{ t.value|urlencode }}" target="_blank" rel="noopener" title="{% if v.focus %}The graph follows {{ t.label }}: Status and Merged 30d count only its {{ v.focus.patches }} changes; expand for those and for the whole graph. Opens the {{ t.kind }} in Gerrit.{% else %}Built from {{ t.label }}. Opens the {{ t.kind }} in Gerrit.{% endif %}">{{ t.label }}</a>
+                    {%- endfor -%}
                     {% if proj != public_project %}<span class="internal-badge" title="Internal project: {{ proj }}">internal</span>{% endif %}
                 </div>
             </td>
@@ -51,22 +56,20 @@
             </td>
             <td class="col-num col-status">
                 {% if h.open is not none %}
-                <span class="status-line" title="{% if v.focus %}The changes with {{ v.focus.label }}: {% endif %}{{ h.ready or 0 }} of {{ h.open }} open ready ({{ h.in_review or 0 }} in review, {{ h.blocked or 0 }} blocked) &middot; {{ h.merged or 0 }} merged &middot; {{ h.abandoned or 0 }} abandoned">
+                <span class="status-line" title="{% if v.focus %}Only the {{ v.focus.patches }} changes with {{ v.focus.label }} (the graph has {{ v.patches }}; expand for both): {% endif %}{{ h.ready or 0 }} of {{ h.open }} open ready ({{ h.in_review or 0 }} in review, {{ h.blocked or 0 }} blocked) &middot; {{ h.merged or 0 }} merged &middot; {{ h.abandoned or 0 }} abandoned">
                     <span class="{{ 'stat-ready' if h.ready else 'stat-zero' }}">{{ h.ready or 0 }}</span><span class="stat-sep">/</span><span class="stat-open">{{ h.open }}</span><span class="stat-sep">&middot;</span><span class="stat-merged">{{ h.merged or 0 }}</span>
                 </span>
-                {% if v.focus %}<span class="sub focus-label">{{ v.focus.label }}</span>{% endif %}
                 {% else %}<span class="muted">{{ missing }}</span>{% endif %}
             </td>
             <td class="col-num col-trend">
                 {% if h.has_summary %}
-                <span class="trend-cell">
+                <span class="trend-cell"{% if v.focus %} title="Only the changes with {{ v.focus.label }}"{% endif %}>
                     <span class="num {{ '' if h.merged_30d else 'num-zero' }}">{{ h.merged_30d }}</span>
                     <span class="trend trend-{{ h.trend }}" title="{{ h.merged_prev_30d }} in the 30 days before">
                         {%- if h.trend == 'up' %}&#9650;{% elif h.trend == 'down' %}&#9660;{% else %}&ndash;{% endif -%}
                     </span>
                     {{ spark(h.spark) }}
                 </span>
-                {% if v.focus %}<span class="sub focus-label">{{ v.focus.label }}</span>{% endif %}
                 {% else %}<span class="muted">{{ missing }}</span>{% endif %}
             </td>
             <td class="col-updated">
@@ -93,78 +96,22 @@
             <td colspan="8">
                 <div class="detail">
                     {% if v.focus %}
-                    <p class="detail-note">The row counts the {{ v.focus.patches if v.focus.patches is not none else missing }} changes with <b>{{ v.focus.label }}</b>; below are all {{ v.patches if v.patches is not none else missing }} changes in the graph.</p>
+                    {#- Two sets, each under its own heading: first what the row
+                        counts (the changes with the hashtag or topic the graph
+                        follows), then the whole graph. -#}
+                    <h3 class="figures-title">
+                        {% for t in v.focus.tags %}<span class="focus-pill">{{ t.label }}</span>{% endfor %}
+                        <span class="figures-count">{{ v.focus.patches if v.focus.patches is not none else missing }} changes</span>
+                        <span class="figures-sub">&mdash; what the row counts</span>
+                    </h3>
+                    {% if v.focus.has_summary %}{{ stat_grid(v.focus) }}{% endif %}
+                    <h3 class="figures-title figures-all">
+                        <span class="figures-count">Whole graph &middot; {{ v.patches if v.patches is not none else missing }} changes</span>
+                        <span class="figures-sub">&mdash; with and without {{ v.focus.label }}</span>
+                    </h3>
                     {% endif %}
                     {% if v.has_summary %}
-                    <div class="detail-body">
-                    <div class="detail-grid">
-                        <section class="stat-card stat-wide">
-                            <h3>Patches</h3>
-                            <p class="stat-big">{{ v.patches if v.patches is not none else missing }}</p>
-                            <div class="compose" role="img" aria-label="{{ v.open }} open, {{ v.merged }} merged, {{ v.abandoned }} abandoned">
-                                <span class="c-open" style="width: {{ '%.2f'|format(v.share.open) }}%"></span><span class="c-merged" style="width: {{ '%.2f'|format(v.share.merged) }}%"></span><span class="c-abandoned" style="width: {{ '%.2f'|format(v.share.abandoned) }}%"></span>
-                            </div>
-                            <p class="legend">
-                                <span class="stat-open"><i class="dot c-open"></i>{{ v.open }} open</span>
-                                <span class="stat-merged"><i class="dot c-merged"></i>{{ v.merged }} merged</span>
-                                <span><i class="dot c-abandoned"></i>{{ v.abandoned }} abandoned</span>
-                            </p>
-                            {% if v.ready is not none %}
-                            <p class="stat-note">Of the open: <span class="stat-ready">{{ v.ready }} ready</span>, {{ v.in_review }} in review, {{ v.blocked }} blocked</p>
-                            {% endif %}
-                        </section>
-                        <section class="stat-card">
-                            <h3>Last 30 days</h3>
-                            <p class="stat-big stat-merged">{{ v.merged_30d }} <small>merged</small></p>
-                            <p class="stat-note">
-                                <span class="trend trend-{{ v.trend }}">{% if v.trend == 'up' %}&#9650;{% elif v.trend == 'down' %}&#9660;{% else %}&ndash;{% endif %}</span>
-                                {{ v.merged_prev_30d }} in the 30 days before
-                            </p>
-                            <p class="stat-note">{{ v.opened_30d }} opened &middot; {{ v.abandoned_30d }} abandoned</p>
-                        </section>
-                        <section class="stat-card">
-                            <h3>Upload to merge</h3>
-                            <p class="stat-big">{{ v.ttm_median }} <small>median</small></p>
-                            <p class="stat-note">p90 {{ v.ttm_p90 }} &middot; {{ v.ttm_count }} merged</p>
-                        </section>
-                        <section class="stat-card">
-                            <h3>First review</h3>
-                            <p class="stat-big">{{ v.ttfr_median }} <small>median</small></p>
-                            <p class="stat-note">p90 {{ v.ttfr_p90 }}</p>
-                        </section>
-                        <section class="stat-card">
-                            <h3>Patchsets to merge</h3>
-                            <p class="stat-big">{{ v.ps_median }} <small>median</small></p>
-                            <p class="stat-note">most {{ v.ps_max }}</p>
-                        </section>
-                        <section class="stat-card">
-                            <h3>Oldest in-flight</h3>
-                            <p class="stat-big">{{ v.oldest_open.age if v.oldest_open else missing }}</p>
-                            <p class="stat-note">{{ patch_link(v.oldest_open) }}</p>
-                        </section>
-                        <section class="stat-card">
-                            <h3>Longest idle</h3>
-                            <p class="stat-big">{{ v.longest_idle.age if v.longest_idle else missing }}</p>
-                            <p class="stat-note">{{ patch_link(v.longest_idle) }}</p>
-                        </section>
-                    </div>
-                        <section class="stat-card stat-chart">
-                            <h3>Merged per month</h3>
-                            <svg class="chart" viewBox="0 -12 240 90" role="img" aria-label="Merged per month over the last 12 months">
-                                <line x1="0" y1="64.5" x2="240" y2="64.5" class="axis"/>
-                                {% for b in v.chart %}
-                                {%- set m = v.months[loop.index0] -%}
-                                <g>
-                                    <title>{{ m.label }}: {{ b.value }} merged</title>
-                                    <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" class="{{ 'bar-empty' if b.empty else 'bar' }}"/>
-                                    {% if b.value %}<text x="{{ b.x + b.w / 2 }}" y="{{ b.y - 3 }}" class="bar-value">{{ b.value }}</text>{% endif %}
-                                    <text x="{{ b.x + b.w / 2 }}" y="76" class="bar-label">{{ m.short }}</text>
-                                </g>
-                                {% endfor %}
-                            </svg>
-                            <p class="stat-note">{{ v.months[0].label if v.months else '' }} &ndash; {{ v.months[-1].label if v.months else '' }}</p>
-                        </section>
-                    </div>
+                    {{ stat_grid(v) }}
                     {% else %}
                     <p class="detail-empty">
                         {% if v.open is not none %}{{ v.open }} open &middot; {{ v.merged }} merged &middot; {{ v.abandoned }} abandoned. {% endif %}
