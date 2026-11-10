@@ -123,6 +123,21 @@ run() {
     fi
 }
 
+pip_install() {
+    # pip install, quiet unless it fails: a successful build's setuptools
+    # warnings about the packages' metadata are noise here.
+    local out rc
+    if [ "$DRY_RUN" = 1 ]; then
+        run "$VENV/bin/pip" install "$@"
+        return
+    fi
+    out=$("$VENV/bin/pip" install -q "$@" 2>&1) || {
+        rc=$?
+        printf '%s\n' "$out" >&2
+        return "$rc"
+    }
+}
+
 write_file() {
     # write_file <path> <mode>; content on stdin
     local path="$1" mode="$2"
@@ -389,7 +404,7 @@ do_install() {
     if [ ! -x "$VENV/bin/python" ]; then
         run "$PYTHON" -m venv "$VENV"
     fi
-    run "$VENV/bin/pip" install -q --upgrade pip
+    pip_install --upgrade pip
     ok "$VENV"
 
     step "Installing packages"
@@ -404,17 +419,17 @@ do_install() {
         # one under /root, say. The price: after pulling that checkout,
         # re-run this script to pick the new version up.
         for pkg in llm_tool_common gerrit_cli gerrit_dashboard; do
-            run "$VENV/bin/pip" install -q "$TOOLS_DIR/$pkg"       # dependencies
-            run "$VENV/bin/pip" install -q --no-deps --force-reinstall "$TOOLS_DIR/$pkg"
+            pip_install "$TOOLS_DIR/$pkg"       # dependencies
+            pip_install --no-deps --force-reinstall "$TOOLS_DIR/$pkg"
         done
         ok "gerrit-cli and gerrit-dashboard installed from $TOOLS_DIR ($(git -C "$TOOLS_DIR" log -1 --format='%h %ad' --date=short 2>/dev/null || echo 'not a git checkout'))"
     else
         for pkg in llm_tool_common gerrit_cli gerrit_dashboard; do
-            run "$VENV/bin/pip" install -q -e "$APP_DIR/vendor/llm_tools/$pkg"
+            pip_install -e "$APP_DIR/vendor/llm_tools/$pkg"
         done
         ok "gerrit-cli and gerrit-dashboard installed from the bundled vendor/llm_tools"
     fi
-    run "$VENV/bin/pip" install -q -e "$APP_DIR"
+    pip_install -e "$APP_DIR"
     ok "portal installed"
 
     step "Creating $DATA_DIR"
