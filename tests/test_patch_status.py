@@ -399,7 +399,7 @@ needs_merge_tree = pytest.mark.skipif(_git_version() < (2, 40), reason="git merg
 
 
 @pytest.fixture
-def upstream(tmp_path):
+def upstream(tmp_path, monkeypatch):
     """A project with master moved on since the changes were written:
     101 applies, 102 conflicts, 103 sits on 102."""
     import subprocess
@@ -432,6 +432,12 @@ def upstream(tmp_path):
     shas[102] = commit("uno\ntwo\nthree\n", "102")
     shas[103] = commit("uno\ntwo\ntres\n", "103")
     git("push", "-q", str(up), f"{shas[102]}:refs/changes/02/102/1", f"{shas[103]}:refs/changes/03/103/1")
+    # The picks run as a service user with no git configuration at all.
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    for var in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"):
+        monkeypatch.delenv(var, raising=False)
     return tmp_path, shas
 
 

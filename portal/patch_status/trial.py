@@ -32,6 +32,15 @@ class TrialError(Exception):
     """The picks could not be tried; the votes stand in."""
 
 
+# Anonymous fetches, never a prompt; and an identity for the trial commits,
+# which the service user's git does not have.
+_ENV = {
+    "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "true",
+    "GIT_AUTHOR_NAME": "Patch Status", "GIT_AUTHOR_EMAIL": "patch-status@localhost",
+    "GIT_COMMITTER_NAME": "Patch Status", "GIT_COMMITTER_EMAIL": "patch-status@localhost",
+}
+
+
 def candidates(changes: list[dict]) -> list[dict]:
     """The changes to try: not test-only, CI green, two reviews, no
     negative vote -- whatever else they wait for."""
@@ -71,11 +80,10 @@ class Repo:
 
     def git(self, *args: str, input: Optional[str] = None, timeout: int = GIT_TIMEOUT,
             check: bool = True) -> subprocess.CompletedProcess:
-        # Anonymous: no credential helper, never a prompt.
-        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "true"}
         return subprocess.run(
             ["git", "-c", "credential.helper=", "--git-dir", self.path, *args],
-            input=input, capture_output=True, text=True, timeout=timeout, env=env, check=check,
+            input=input, capture_output=True, text=True, timeout=timeout,
+            env={**os.environ, **_ENV}, check=check,
         )
 
     def ensure(self) -> None:
@@ -176,6 +184,9 @@ def try_picks(
             ch["_merge_blocked_by"] = failed if failed and failed != ch["_number"] else None
             conflicts += failed is not None
             progress("trial picks", i, len(picks))
+    except subprocess.CalledProcessError as exc:
+        last = ((exc.stderr or "").strip().splitlines() or [""])[-1]
+        raise TrialError(f"git {exc.cmd[5] if len(exc.cmd) > 5 else ''}: {last[:200]}") from None
     except (OSError, subprocess.SubprocessError) as exc:
         raise TrialError(f"git: {exc.__class__.__name__}") from None
     log(f"trial picks: {len(picks)} tried, {conflicts} do not apply to {branch}")
