@@ -316,7 +316,13 @@ needs a rebase, test only -- with V/R/C/S/D columns, release blockers
 and priorities (`*_review_blocker` / `*_review_priority` hashtags) first,
 a comment per change on what is missing, and a search whose state is in
 the URL. The rules are Lustre's: jenkins and Maloo +1, two reviewers
-other than the owner, wc-checkpatch's -1 meaning "needs a rebase".
+other than the owner. Whether a change still applies is tried: for every
+change that passes all other checks, its series is cherry-picked onto
+today's branch in order (`git merge-tree`, no checkout), as the
+community wiki's Patch Status does; for the rest, wc-checkpatch's -1 vote
+stands in. The picks need git >= 2.40 and use a repository of their own
+in the data directory, which borrows `PORTAL_GRAPH_CONFLICTS_REPO`'s
+objects when there is one (about 10 s and one git fetch per run).
 
 A run reads Gerrit and Jira **without logging in** -- the page cannot
 show anything that is not public -- and takes a couple of minutes and
@@ -332,6 +338,8 @@ PORTAL_PATCH_STATUS=1
 # (format in portal/patch_status/orgs.py). Keep it out of the repo.
 #PORTAL_PATCH_STATUS_ORGS=/etc/portal/patch-status-orgs.json
 #PORTAL_PATCH_STATUS_MIN_INTERVAL=900
+# 0: no trial picks, wc-checkpatch's votes alone say "needs a rebase".
+#PORTAL_PATCH_STATUS_TRIAL_PICKS=1
 ```
 
 The page is the first in the TLC design of the Gerrit Dashboard

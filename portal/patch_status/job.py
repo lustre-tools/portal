@@ -145,6 +145,8 @@ def run(
     ticket_prefix: str = "LU",
     orgs_file: Optional[str] = None,
     commit_url: str = "",
+    trial_picks: bool = True,
+    borrow_from: Optional[str] = None,
     limit: Optional[int] = None,
     log=None,
 ) -> dict:
@@ -165,6 +167,19 @@ def run(
                 gerrit_url=gerrit_url, jira_url=jira_url, project=project, branch=branch,
                 ticket_prefix=ticket_prefix, limit=limit, progress=status.progress, log=log,
             )
+            if trial_picks:
+                from portal.patch_status.trial import TrialError, try_picks
+
+                try:
+                    tried = try_picks(
+                        raw["changes"], directory=directory, gerrit_url=gerrit_url,
+                        project=project, branch=branch, borrow_from=borrow_from,
+                        progress=status.progress, log=log,
+                    )
+                    raw["rebase_check"] = f"trial picks onto {branch} ({tried} tried)"
+                except TrialError as exc:
+                    log(f"trial picks not tried, the votes stand: {exc}")
+                    raw["rebase_check"] = "wc-checkpatch votes (the trial picks failed)"
             status.progress("rendering", 0, None)
             changes = classify(raw["changes"])
             body = Page(gerrit_url, jira_url, ticket_prefix, orgs, commit_url).render(raw, changes)
@@ -190,6 +205,7 @@ def run(
             "total": len(changes),
             "buckets": {b: sum(c.get("bucket") == b for c in changes) for b in BUCKET_ORDER},
             "seconds": round(time.time() - started),
+            "rebase_check": raw.get("rebase_check") or "wc-checkpatch votes",
         }
         _write_json(os.path.join(directory, META), meta)
         status.finish()
@@ -236,6 +252,7 @@ def main(argv=None) -> int:
             project=cfg["PATCH_STATUS_PROJECT"], branch=cfg["PATCH_STATUS_BRANCH"],
             ticket_prefix=cfg["TICKET_PREFIX"], orgs_file=cfg["PATCH_STATUS_ORGS"],
             commit_url=cfg["COMMIT_URL"],
+            trial_picks=cfg["PATCH_STATUS_TRIAL_PICKS"], borrow_from=cfg["GRAPH_CONFLICTS_REPO"],
             limit=args.limit, log=log,
         )
     except Busy as exc:

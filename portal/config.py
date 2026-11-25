@@ -214,6 +214,12 @@ def build_config(testing=False):
         "PATCH_STATUS_BRANCH": _env("PATCH_STATUS_BRANCH", "master"),
         "PATCH_STATUS_ORGS": _env("PATCH_STATUS_ORGS") or None,
         "PATCH_STATUS_MIN_INTERVAL": max(60, _env_int("PATCH_STATUS_MIN_INTERVAL", 900)),
+        # Whether a change still applies is tried with a cherry-pick for the
+        # changes that pass every other check (patch_status/trial.py), in
+        # a repository of its own under PATCH_STATUS_DIR that borrows
+        # GRAPH_CONFLICTS_REPO's objects when there is one. 0: only
+        # wc-checkpatch's -1 votes say "needs a rebase".
+        "PATCH_STATUS_TRIAL_PICKS": (_env("PATCH_STATUS_TRIAL_PICKS", "1") or "1").lower() in ("1", "true", "yes"),
         # The external `gc` CLI (gerrit-cli). Override to pin a specific
         # binary; otherwise it is found next to the running interpreter.
         "GC_BIN": _env("GC_BIN") or _default_gc_bin(),

@@ -79,6 +79,22 @@ def test_a_run_writes_the_page_meta_and_status(ps_dir, monkeypatch):
     assert st["state"] == "done" and not st["running"] and st["started_at"]
 
 
+def test_the_page_says_how_rebases_were_checked(ps_dir, monkeypatch):
+    from portal.patch_status.trial import TrialError
+
+    monkeypatch.setattr("portal.patch_status.fetch.fetch", fake_fetch)
+    monkeypatch.setattr("portal.patch_status.trial.try_picks", lambda *a, **k: 7)
+    assert job.run(ps_dir, **RUN)["rebase_check"] == "trial picks onto master (7 tried)"
+    assert "needs-rebase check: trial picks onto master (7 tried)" in job.read_page(ps_dir)
+
+    def broken(*a, **k):
+        raise TrialError("no git")
+
+    monkeypatch.setattr("portal.patch_status.trial.try_picks", broken)
+    assert job.run(ps_dir, **RUN)["rebase_check"] == "wc-checkpatch votes (the trial picks failed)"
+    assert job.run(ps_dir, trial_picks=False, **RUN)["rebase_check"] == "wc-checkpatch votes"
+
+
 def test_a_failed_run_keeps_the_last_page_and_says_why(ps_dir, monkeypatch):
     publish(ps_dir, body="previous")
 

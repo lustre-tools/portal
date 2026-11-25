@@ -34,7 +34,7 @@ COLUMNS = [
 LEGEND = [
     ("V", "Verified: both jenkins and Maloo must be +1, with no -1"),
     ("R", "Code-Review: at least two +1s from people other than the owner, and no -1 or -2"),
-    ("C", "Clean cherry-pick: ✗ when wc-checkpatch holds a -1 because the patch needs a rebase; stacked patches take the result of the first open patch of their series"),
+    ("C", "Clean cherry-pick: ✗ when the patch does not apply to the branch. For patches that pass every other check this is a trial cherry-pick onto today's branch; for the rest, wc-checkpatch's -1 vote. Stacked patches take the result of the first open patch of their series"),
     ("S", "Style: wc-checkpatch warnings; advisory, does not block landing"),
     ("D", "Dependees: every patch below in the series is merged or ready itself"),
     ("Chain", "position in the series; lower numbers land first; blank means no series"),
@@ -296,6 +296,7 @@ class Page:
             f'<p class="meta">project <code>{_esc(project)}</code> · branch <code>{_esc(branch)}</code>'
             f" · open changes: {total}"
             + (f" · HEAD {self.head_link(project, head)}" if head else "")
+            + (f" · needs-rebase check: {_esc(fetch_result['rebase_check'])}" if fetch_result.get("rebase_check") else "")
             + "</p>",
         ]
 

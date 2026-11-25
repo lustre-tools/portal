@@ -348,8 +348,11 @@ def _effective_mergeable(change: dict, by_number: dict[int, dict]) -> Optional[b
     wc-checkpatch only trial-picks a standalone change or the first open
     change of a series, so a change higher up inherits that one's
     verdict: if the bottom cannot be applied, nothing above it can land.
-    A change's own -1 always counts.
+    A change's own -1 always counts. A change the run trial-picked
+    (patch_status/trial.py: its whole series, in order) has its answer.
     """
+    if change.get("_picked"):
+        return change.get("mergeable")
     related = change.get("_related") or []
     n = change.get("_number")
     if len(related) <= 1:

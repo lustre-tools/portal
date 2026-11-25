@@ -96,7 +96,7 @@ def _primary(change: dict) -> str:
     if change.get("_effective_mergeable") is False:
         bottom = change.get("_merge_blocked_by")
         if bottom:
-            return f"rebase #{bottom} (chain bottom) first"
+            return f"rebase #{bottom} first"
         return "conflicts with branch tip"
 
     human_negs = v.get("human_negatives") or []

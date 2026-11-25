@@ -155,7 +155,7 @@ def test_series_inherits_the_rebase_vote_of_its_first_patch():
         ch["mergeable"] = not is_rebase_vote(ch)
     classify([bottom, top])
     assert bottom["bucket"] == top["bucket"] == NEEDS_REBASE
-    assert comment_for(top) == "rebase #1 (chain bottom) first"
+    assert comment_for(top) == "rebase #1 first"
 
 
 def test_a_series_waits_for_the_change_below_it():
@@ -384,3 +384,103 @@ def test_every_bucket_has_a_section_and_a_summary_row():
     out = page(change())
     for b in BUCKET_ORDER:
         assert f"<h2>{b} " in out and f">{b}</a></td>" in out
+
+
+# ---------- trial picks ----------
+
+def _git_version():
+    import subprocess
+    out = subprocess.run(["git", "--version"], capture_output=True, text=True).stdout
+    m = re.search(r"(\d+)\.(\d+)", out)
+    return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+
+
+needs_merge_tree = pytest.mark.skipif(_git_version() < (2, 40), reason="git merge-tree --merge-base needs git 2.40")
+
+
+@pytest.fixture
+def upstream(tmp_path):
+    """A project with master moved on since the changes were written:
+    101 applies, 102 conflicts, 103 sits on 102."""
+    import subprocess
+
+    work, up = tmp_path / "work", tmp_path / "up.git"
+
+    def git(*a):
+        return subprocess.run(["git", "-C", str(work), *a], check=True, capture_output=True,
+                              text=True).stdout.strip()
+
+    subprocess.run(["git", "init", "-q", "--bare", str(up)], check=True)
+    subprocess.run(["git", "init", "-q", "-b", "master", str(work)], check=True)
+    git("config", "user.email", "t@example.org")
+    git("config", "user.name", "T")
+
+    def commit(text, msg):
+        (work / "f").write_text(text)
+        git("add", "f")
+        git("commit", "-q", "-m", msg)
+        return git("rev-parse", "HEAD")
+
+    base = commit("one\ntwo\nthree\n", "base")
+    commit("ONE\ntwo\nthree\n", "master moves on")
+    git("push", "-q", str(up), "master")
+    shas = {}
+    git("checkout", "-q", base)
+    shas[101] = commit("one\ntwo\nTHREE\n", "101")
+    git("push", "-q", str(up), f"{shas[101]}:refs/changes/01/101/1")
+    git("checkout", "-q", base)
+    shas[102] = commit("uno\ntwo\nthree\n", "102")
+    shas[103] = commit("uno\ntwo\ntres\n", "103")
+    git("push", "-q", str(up), f"{shas[102]}:refs/changes/02/102/1", f"{shas[103]}:refs/changes/03/103/1")
+    return tmp_path, shas
+
+
+def picked(number, sha, related=()):
+    ch = change(number=number)
+    ch["current_revision"], ch["current_revision_number"] = sha, 1
+    ch["_related"] = [{"_change_number": n, "status": "NEW", "_revision_number": 1} for n in related]
+    return ch
+
+
+@needs_merge_tree
+def test_trial_picks_follow_the_series_onto_today_s_branch(upstream, tmp_path):
+    from portal.patch_status.trial import try_picks
+
+    root, shas = upstream
+    series = (103, 102)
+    a, b, c = picked(101, shas[101]), picked(102, shas[102], series), picked(103, shas[103], series)
+    test_only = picked(104, shas[101])
+    test_only["hashtags"] = ["fortestonly"]
+    # 102 carries no vote, but it does not apply.
+    n = try_picks([a, b, c, test_only], directory=str(tmp_path / "ps"), gerrit_url=f"file://{root}",
+                  project="up.git", branch="master")
+    assert n == 3 and "_picked" not in test_only
+    assert a["mergeable"] is True and b["mergeable"] is False and c["mergeable"] is False
+    assert c["_merge_blocked_by"] == 102 and b["_merge_blocked_by"] is None
+    classify([a, b, c])
+    assert a["bucket"] == READY_TO_LAND
+    assert b["bucket"] == c["bucket"] == NEEDS_REBASE
+    assert comment_for(b) == "conflicts with branch tip"
+    assert comment_for(c) == "rebase #102 first"
+
+
+@needs_merge_tree
+def test_a_stale_rebase_vote_does_not_hold_back_a_change_that_applies(upstream, tmp_path):
+    from portal.patch_status.trial import try_picks
+
+    root, shas = upstream
+    ch = add_review(picked(101, shas[101]), "wc-checkpatch", -1)
+    ch["mergeable"] = not is_rebase_vote(ch)
+    try_picks([ch], directory=str(tmp_path / "ps"), gerrit_url=f"file://{root}", project="up.git", branch="master")
+    classify([ch])
+    assert ch["bucket"] == READY_TO_LAND
+
+
+def test_without_a_reachable_project_the_votes_stand(tmp_path):
+    from portal.patch_status.trial import TrialError, try_picks
+
+    ch = picked(101, "0" * 40)
+    with pytest.raises(TrialError, match="fetching the patch sets failed"):
+        try_picks([ch], directory=str(tmp_path / "ps"), gerrit_url=f"file://{tmp_path}",
+                  project="missing.git", branch="master")
+    assert "_picked" not in ch
