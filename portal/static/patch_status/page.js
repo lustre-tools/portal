@@ -316,4 +316,97 @@ sections.forEach(function (s) {
 		});
 	});
 });
+
+/* ---- sticky headings and the next-section bar ----
+ * The search bar, the current section's heading and its column headers
+ * stay at the top (the stylesheets place them by the heights measured
+ * here). Clicking a heading goes back to the start of its section; a bar
+ * at the bottom names the next section and goes there. */
+
+var filter = root.querySelector('.filter');
+var smooth = window.matchMedia && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* A table that fits needs no scroll box of its own, and without one its
+   column headers can stick; one that does not fit keeps it. On load,
+   resize and search only: it lays the page out again. */
+function fit() {
+	root.querySelectorAll('.scroll').forEach(function (box) {
+		box.classList.remove('fits');
+		box.classList.toggle('fits', box.firstElementChild.offsetWidth <= box.clientWidth + 1);
+	});
+}
+
+function measure() {
+	var h2 = root.querySelector('section > h2');
+	root.style.setProperty('--ps-filter-h', filter.offsetHeight + 'px');
+	root.style.setProperty('--ps-h2-h', (h2 ? h2.offsetHeight : 0) + 'px');
+}
+
+function go(el) { el.scrollIntoView({behavior: smooth ? 'smooth' : 'auto', block: 'start'}); }
+
+sections.forEach(function (s) {
+	var h2 = s.el.querySelector('h2');
+	h2.title = 'Back to the start of this section';
+	h2.addEventListener('click', function (ev) {
+		if (ev.target.closest('a')) return;
+		go(s.el);
+	});
+});
+
+var bar = document.createElement('nav');
+bar.className = 'ps-next';
+bar.setAttribute('aria-label', 'Next section');
+bar.hidden = true;
+var next = document.createElement('a'), top = document.createElement('a');
+top.href = '#';
+top.className = 'ps-top';
+top.textContent = '↑ Top';
+top.title = 'Back to the top of the page';
+bar.appendChild(next);
+bar.appendChild(top);
+root.appendChild(bar);
+top.addEventListener('click', function (ev) { ev.preventDefault(); window.scrollTo({top: 0, behavior: smooth ? 'smooth' : 'auto'}); });
+
+var target = null;
+next.addEventListener('click', function (ev) {
+	ev.preventDefault();
+	if (target) go(target.el);
+});
+
+function title(s) { return s.el.querySelector('h2').firstChild.textContent.replace(/\s*\($/, ''); }
+
+function update() {
+	measure();
+	var line = filter.getBoundingClientRect().bottom + 2;
+	var visible = sections.filter(function (s) { return !s.el.hidden; });
+	var current = -1;
+	visible.forEach(function (s, i) { if (s.el.getBoundingClientRect().top <= line) current = i; });
+	target = visible[current + 1] || null;
+	// Above the first section the search bar has not stuck yet: no bar.
+	bar.hidden = !target || (current < 0 && filter.getBoundingClientRect().top > 0);
+	if (target) {
+		next.textContent = '';
+		var label = document.createElement('span');
+		label.textContent = 'Next: ';
+		var name = document.createElement('b');
+		name.textContent = title(target);
+		next.appendChild(label);
+		next.appendChild(name);
+		next.appendChild(document.createTextNode(' (' + target.n.textContent + ') ↓'));
+		next.href = '#' + target.el.id;
+	}
+}
+
+var ticking = false;
+function schedule() {
+	if (ticking) return;
+	ticking = true;
+	requestAnimationFrame(function () { ticking = false; update(); });
+}
+window.addEventListener('scroll', schedule, {passive: true});
+window.addEventListener('resize', function () { fit(); schedule(); });
+q.addEventListener('input', function () { setTimeout(function () { fit(); schedule(); }, 150); });
+age.addEventListener('change', function () { fit(); schedule(); });
+fit();
+update();
 })();

@@ -3,7 +3,7 @@
    tables, tags and badges. Colours only from the --tlc-* tokens, so the
    themes and the high-contrast palettes all work. */
 
-.ps { font-size: var(--tlc-text-sm); line-height: var(--tlc-leading-dense); }
+.ps { font-size: var(--tlc-text-sm); line-height: var(--tlc-leading-dense); padding-bottom: var(--tlc-space-8); }
 .ps h2 { font-size: var(--tlc-text-lg); margin: var(--tlc-space-6) 0 var(--tlc-space-3); }
 .ps h2 .n { font-variant-numeric: tabular-nums; }
 .ps .meta { color: var(--tlc-muted); margin: 0 0 var(--tlc-space-4); max-width: none; }
@@ -16,7 +16,7 @@
 /* tables, as .tlc-table inside .tlc-table-wrap */
 .ps table { border-collapse: separate; border-spacing: 0; background: var(--tlc-surface);
             font-size: var(--tlc-text-sm); line-height: var(--tlc-leading-dense); }
-.ps th, .ps td { padding: var(--tlc-space-1) var(--tlc-space-2); border-bottom: 1px solid var(--tlc-border);
+.ps th, .ps td { padding: var(--tlc-space-1) calc(var(--tlc-space-2) * .75); border-bottom: 1px solid var(--tlc-border);
                  text-align: left; vertical-align: top; }
 .ps thead th { background: var(--tlc-surface-2); color: var(--tlc-text); font-weight: 700; white-space: nowrap;
                border-bottom: 2px solid var(--tlc-border-strong); }
@@ -25,7 +25,8 @@
 .ps .sum { border: 1px solid var(--tlc-border); border-radius: var(--tlc-radius); overflow: hidden; margin-bottom: var(--tlc-space-4); }
 .ps .sum td, .ps .sum th { padding: var(--tlc-space-1) var(--tlc-space-3); }
 .ps .scroll { overflow-x: auto; border: 1px solid var(--tlc-border); border-radius: var(--tlc-radius); background: var(--tlc-surface); }
-.ps .list { width: 100%; min-width: 100%; }
+/* as dense as the classic design's 13px table */
+.ps .list { width: 100%; min-width: 100%; font-size: var(--tlc-text-xs); }
 .ps .list th button { all: unset; cursor: pointer; display: inline-flex; gap: .3em; align-items: center; font-weight: 700; }
 .ps .list th button:focus-visible { outline: var(--tlc-focus-width) solid var(--tlc-focus); outline-offset: 2px; }
 .ps th[aria-sort="ascending"] button::after { content: "\25B2" / ""; font-size: .7em; }
@@ -93,6 +94,28 @@
 .ps #ps-suggest .what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ps #ps-suggest .count { color: var(--tlc-muted); font-size: var(--tlc-text-xs); font-variant-numeric: tabular-nums; }
 
-.ps section { scroll-margin-top: 4rem; }
+/* While scrolling, the search bar, the current section's heading and its
+   column headers stay at the top (page.js measures their heights); the
+   heading takes you back to the start of its section. Column headers can
+   only stick without the table's own scroll box, so a table that fits
+   does without it (page.js decides). */
+.ps section { margin-top: var(--tlc-space-5); scroll-margin-top: var(--ps-filter-h, 0px); }
+.ps section > h2 { position: sticky; top: var(--ps-filter-h, 0px); z-index: 4; margin: 0;
+                   padding: var(--tlc-space-2) 0; background: var(--tlc-page); cursor: pointer; }
+.ps section > h2:hover { color: var(--tlc-accent); }
+.ps .list thead th { position: sticky; top: calc(var(--ps-filter-h, 0px) + var(--ps-h2-h, 0px)); z-index: 3; }
+.ps .scroll.fits { overflow: visible; }
+.ps .scroll.fits .list thead th:first-child { border-top-left-radius: var(--tlc-radius); }
+.ps .scroll.fits .list thead th:last-child { border-top-right-radius: var(--tlc-radius); }
+/* the next section, at the bottom */
+.ps-next { position: fixed; left: 50%; bottom: var(--tlc-space-4); transform: translateX(-50%); z-index: 6; display: flex;
+           max-width: calc(100% - 2rem); background: var(--tlc-surface); border: 1px solid var(--tlc-border-strong);
+           border-radius: var(--tlc-radius-pill); box-shadow: var(--tlc-shadow-pop); overflow: hidden; }
+.ps-next a { padding: var(--tlc-space-2) var(--tlc-space-4); color: var(--tlc-text); white-space: nowrap;
+             overflow: hidden; text-overflow: ellipsis; }
+.ps-next a:hover { background: var(--tlc-accent-wash); text-decoration: none; }
+.ps-next span { color: var(--tlc-muted); }
+.ps-next .ps-top { flex: none; border-left: 1px solid var(--tlc-border); color: var(--tlc-text-2); }
+@media (prefers-reduced-motion: no-preference) { .ps-next { transition: opacity .15s; } }
 .ps [hidden] { display: none; }
 @media (max-width: 40rem) { .ps dl { grid-template-columns: 1fr; } }
