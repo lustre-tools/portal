@@ -129,8 +129,9 @@ def chain_text(change: dict) -> str:
 
 class Page:
     def __init__(self, gerrit_url: str, jira_url: str, ticket_prefix: str = "LU",
-                 orgs: Optional[Orgs] = None):
+                 orgs: Optional[Orgs] = None, commit_url: str = ""):
         self.gerrit = gerrit_url.rstrip("/")
+        self.commit_url = commit_url
         self.jira = jira_url.rstrip("/")
         self.ticket_prefix = ticket_prefix
         self.orgs = orgs
@@ -189,6 +190,13 @@ class Page:
             pos = m.end()
         out.append(_esc(text[pos:]))
         return "".join(out)
+
+    def head_link(self, project: str, sha: str) -> str:
+        code = f'<code title="{_esc(sha)}">{_esc(sha[:12])}</code>'
+        if not self.commit_url:
+            return code
+        url = self.commit_url.format(project=quote(project, safe="/"), sha=quote(sha, safe=""))
+        return f'<a href="{_esc(url)}">{code}</a>'
 
     @staticmethod
     def vote(score: int) -> str:
@@ -287,8 +295,7 @@ class Page:
         out = [
             f'<p class="meta">project <code>{_esc(project)}</code> · branch <code>{_esc(branch)}</code>'
             f" · open changes: {total}"
-            + (f' · HEAD <a href="{_esc(self.gerrit)}/plugins/gitiles/{_esc(project)}/+/{_esc(head)}"'
-               f' title="{_esc(head)}"><code>{_esc(head[:12])}</code></a>' if head else "")
+            + (f" · HEAD {self.head_link(project, head)}" if head else "")
             + "</p>",
         ]
 

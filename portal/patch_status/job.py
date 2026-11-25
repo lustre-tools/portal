@@ -144,6 +144,7 @@ def run(
     branch: str,
     ticket_prefix: str = "LU",
     orgs_file: Optional[str] = None,
+    commit_url: str = "",
     limit: Optional[int] = None,
     log=None,
 ) -> dict:
@@ -166,7 +167,7 @@ def run(
             )
             status.progress("rendering", 0, None)
             changes = classify(raw["changes"])
-            body = Page(gerrit_url, jira_url, ticket_prefix, orgs).render(raw, changes)
+            body = Page(gerrit_url, jira_url, ticket_prefix, orgs, commit_url).render(raw, changes)
         except FetchError as exc:
             status.finish(error=str(exc)[:300] or "the data was incomplete")
             raise
@@ -234,6 +235,7 @@ def main(argv=None) -> int:
             gerrit_url=cfg["GERRIT_URL"], jira_url=cfg["JIRA_URL"],
             project=cfg["PATCH_STATUS_PROJECT"], branch=cfg["PATCH_STATUS_BRANCH"],
             ticket_prefix=cfg["TICKET_PREFIX"], orgs_file=cfg["PATCH_STATUS_ORGS"],
+            commit_url=cfg["COMMIT_URL"],
             limit=args.limit, log=log,
         )
     except Busy as exc:

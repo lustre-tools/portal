@@ -96,7 +96,9 @@ def test_a_ready_patch_on_the_landing_branch_is_in_line():
     ch["_staged"] = True
     classify([ch])
     assert ch["bucket"] == IN_LINE_FOR_LANDING
-    assert comment_for(ch) == "in master-next"
+    assert comment_for(ch) == ""
+    ch["unresolved_comment_count"] = 2
+    assert comment_for(ch) == "2 unresolved"
     assert ch["votes"]["r"] == 1  # nobody voted +2
 
 
@@ -368,6 +370,14 @@ def test_blockers_and_priorities_look_different_and_sort_in_that_order():
     assert rows == [("is-blocker", "3"), ("is-priority", "2"), ("", "1")]
     assert 'class="badge blocker"' in body and 'class="badge priority"' in body
     assert "Release blockers (1)" in out and "Release priority (1)" in out
+
+
+def test_head_links_to_the_commit_in_git_web():
+    classify([c := change()])
+    out = Page(GERRIT, JIRA, "LU", commit_url="https://git.example.org/?p={project}.git;a=commit;h={sha}").render(
+        {"branch": "master", "project": "fs/lustre-release", "head": "a" * 40}, [c])
+    assert 'href="https://git.example.org/?p=fs/lustre-release.git;a=commit;h=' + "a" * 40 + '"' in out
+    assert "gitiles" not in page(change())
 
 
 def test_every_bucket_has_a_section_and_a_summary_row():

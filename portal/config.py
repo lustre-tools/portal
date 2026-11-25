@@ -174,6 +174,9 @@ def build_config(testing=False):
         # Upstream services
         "GERRIT_URL": (_env("GERRIT_URL", "https://review.whamcloud.com")).rstrip("/"),
         "JIRA_URL": (_env("JIRA_URL", "https://jira.whamcloud.com")).rstrip("/"),
+        # A commit in the project's git web view; {project} and {sha} are
+        # filled in.
+        "COMMIT_URL": _env("COMMIT_URL", "https://git.whamcloud.com/?p={project}.git;a=commit;h={sha}"),
         # What counts as public. Anything else is "internal" and needs a
         # role to see. Changing this changes the whole visibility model,
         # so it is read in exactly one place.

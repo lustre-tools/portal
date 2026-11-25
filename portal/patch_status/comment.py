@@ -22,7 +22,6 @@ from portal.patch_status.classify import (
     READY_TO_LAND,
     is_test_only,
 )
-from portal.patch_status.rules import landing_branch
 
 SEP = " · "
 
@@ -146,8 +145,10 @@ def _primary(change: dict) -> str:
             return f"blocked by #{num} — {_BUCKET_SHORT.get(kind, kind.lower())}{tail}"
         return "waiting on a parent change"
 
+    # In line for landing says nothing more: its heading and the landing
+    # branch's hashtag already say it.
     if bucket == IN_LINE_FOR_LANDING or r.get("queued"):
-        return "in " + landing_branch(change.get("branch") or "master")
+        return ""
     if bucket == READY_TO_LAND:
         return "ready"
     return f"in: {bucket}" if bucket else ""
@@ -179,9 +180,9 @@ def _secondary(change: dict, primary: str) -> Optional[str]:
 def comment_for(change: dict) -> str:
     """Plain text; the page turns '#<number>' into change links."""
     primary = _primary(change)
-    if not primary:
-        return ""
     secondary = _secondary(change, primary)
+    if not primary:
+        return secondary or ""
     if secondary and len(primary) + len(SEP) + len(secondary) <= 78:
         return primary + SEP + secondary
     return primary
