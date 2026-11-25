@@ -1,0 +1,39 @@
+{% extends "tlc/layout.html" %}
+{% from "tlc/_job.html" import job_controls with context %}
+{% set active_tab = "patch_status" %}
+{% block title %}Patch Status · {{ branch }} - {{ site_name }}{% endblock %}
+{% block wrap_class %}wrap--full{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='patch_status/' ~ tlc_design ~ '.css') }}">
+<script src="{{ url_for('static', filename='patch_status/page.js') }}" defer></script>
+{% endblock %}
+
+{% block page_title %}Patch Status{% endblock %}
+{% block page_ident %}{{ branch }} · {{ project }}{% endblock %}
+
+{% block topbar %}
+{{ job_controls(url_for('patch_status.status'), url_for('patch_status.update'),
+                meta.version, meta.fetched_at, updated_text) }}
+{% endblock %}
+
+{% block content %}
+{% if failed %}
+<div class="banner" role="alert">The last update failed{% if error %}: {{ error }}{% endif %}.{% if body %} The page shows the last good data.{% endif %}</div>
+{% endif %}
+{% if body %}
+{{ body }}
+{% else %}
+<p class="note">There is no Patch Status page yet. Press <b>Update</b> to build it; it takes a few minutes.</p>
+{% endif %}
+{% endblock %}
+
+{% block foot %}
+{% if body %}
+<footer class="page-foot">
+  Open changes of <code>{{ project }}</code> {{ branch }}, read from Gerrit and Jira without logging in
+  · fetched <span data-gd-epoch="{{ meta.fetched_at }}">{{ updated_text }}</span>
+  {%- if meta.seconds %} in {{ (meta.seconds / 60) | round(1) }} min{% endif %}
+</footer>
+{% endif %}
+{% endblock %}

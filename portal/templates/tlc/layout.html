@@ -1,0 +1,49 @@
+{#- Layout for pages in the TLC design system, the look of the Gerrit
+    Dashboard: the site's navbar, then a top bar with the page's title, its
+    controls and the Display menu, then the page.
+
+    The viewer picks TLC or Classic under Display -> Design; the choice is
+    the dashboard's gd-design cookie, so it is one setting for both. A page
+    styles its content for both designs (tlc_design is "tlc" or
+    "classic") and sets active_tab for the navbar.
+
+    Blocks: title, head (page stylesheets), page_title, page_ident,
+    topbar (controls before the Display menu), content, foot. -#}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ site_name }}{% endblock %}</title>
+{% include "tlc/_display.html" %}
+<link rel="stylesheet" href="{{ url_for('static', filename='tlc/css/tokens.css') }}">
+{% if tlc_design == "classic" %}
+<link rel="stylesheet" href="{{ url_for('static', filename='tlc/css/components.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='tlc-classic.css') }}">
+{% else %}
+<link rel="stylesheet" href="{{ url_for('static', filename='tlc/css/base.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='tlc/css/components.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='tlc-page.css') }}">
+{% endif %}
+<link rel="stylesheet" href="{{ url_for('static', filename='nav.css') }}">
+{% block head %}{% endblock %}
+</head>
+<body class="design-{{ tlc_design }}">
+<a class="tlc-skip" href="#main">Skip to content</a>
+{% include "_nav.html" %}
+<div class="page-zoom">
+<header class="{{ 'tlc-topbar ' if tlc_design == 'tlc' }}page-topbar">
+  <span class="page-title">{% block page_title %}{% endblock %}</span>
+  <span class="ident">{% block page_ident %}{% endblock %}</span>
+  <div class="right">
+    {% block topbar %}{% endblock %}
+    <div class="tlc-pop" data-tlc-display></div>
+  </div>
+</header>
+<main id="main" class="wrap {% block wrap_class %}{% endblock %}">
+{% block content %}{% endblock %}
+{% block foot %}{% endblock %}
+</main>
+</div>
+</body>
+</html>

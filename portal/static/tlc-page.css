@@ -1,0 +1,45 @@
+/* Pages in the TLC design (templates/tlc/layout.html with the TLC design
+   chosen): the frame around a page's content -- top bar, status and
+   progress, banner, footer. Colours only from the --tlc-* tokens, as in
+   gerrit-dashboard's templates/_theme.html, which this follows. */
+
+body { font-size: var(--tlc-text-sm); line-height: var(--tlc-leading-dense); }
+.wrap { max-width: 1560px; margin: 0 auto; padding: var(--tlc-space-4) var(--tlc-space-5) var(--tlc-space-7); }
+.wrap--full { max-width: none; }
+@media (max-width: 40rem) { .wrap { padding-inline: var(--tlc-space-4); } }
+.hidden { display: none !important; }
+
+/* The site's navbar sits above this bar, and pages keep their own sticky
+   parts (a search bar), so this one scrolls away. */
+.page-topbar { position: static; gap: var(--tlc-space-2) var(--tlc-space-4); }
+.page-topbar .page-title { font-family: var(--tlc-display); font-weight: 700; font-size: var(--tlc-text-lg); color: var(--tlc-text); white-space: nowrap; }
+.page-topbar .ident { color: var(--tlc-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.page-topbar .right { display: flex; align-items: center; flex-wrap: wrap; gap: var(--tlc-space-2) var(--tlc-space-3); margin-left: auto; }
+
+.job { display: inline-flex; align-items: center; flex-wrap: wrap; gap: var(--tlc-space-2) var(--tlc-space-3); }
+.status { color: var(--tlc-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.prog { display: flex; align-items: center; gap: var(--tlc-space-2); }
+.prog-label { color: var(--tlc-text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.prog-bar { width: 9rem; height: .5rem; border-radius: var(--tlc-radius-pill); background: var(--tlc-surface-3); overflow: hidden; }
+.prog-fill { display: block; height: 100%; width: 0; border-radius: inherit;
+             background: var(--tlc-accent-solid); transition: width .4s ease; }
+.prog-fill.indet { width: 30%; animation: page-indet 1.2s ease-in-out infinite; }
+@keyframes page-indet { 0% { margin-left: 0; } 50% { margin-left: 70%; } 100% { margin-left: 0; } }
+@media (prefers-reduced-motion: reduce) { .prog-fill.indet { animation: none; } }
+
+.banner { display: flex; gap: var(--tlc-space-3); padding: var(--tlc-space-3) var(--tlc-space-4); margin: 0 0 var(--tlc-space-4);
+          border: 1px solid var(--tlc-bad-border); border-left: 5px solid var(--tlc-bad); border-radius: var(--tlc-radius);
+          background: var(--tlc-bad-wash); color: var(--tlc-bad-text); font-weight: 600; }
+.banner::before { content: "\2715" / ""; font-family: var(--tlc-mono); font-weight: 800; }
+.note { color: var(--tlc-muted); }
+
+footer.page-foot { color: var(--tlc-muted); margin-top: var(--tlc-space-6); border-top: 1px solid var(--tlc-border); padding-top: var(--tlc-space-3); }
+
+/* Smallest text: one step below TLC's Small, wins over any TLC size. */
+html:root[data-gd-size="xs"] { font-size: 87.5%; }
+/* Classic font: the system stack used before TLC. */
+html[data-gd-font="classic"] {
+  --tlc-font: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --tlc-display: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --tlc-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}

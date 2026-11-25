@@ -1,0 +1,23 @@
+{#- Top-bar controls for a page whose data a background job produces: when
+    it was updated, the job's progress while it runs, and an Update button.
+    static/tlc-job.js drives them from the page's status endpoint; see
+    there for the JSON it expects.
+
+    status_url / update_url: the endpoints. version: what the page shows,
+    so the page reloads once a newer one is there. updated_at: epoch
+    seconds of that data, or none; updated_text: the same in UTC, shown
+    until the script puts it in the viewer's timezone. -#}
+{% macro job_controls(status_url, update_url, version, updated_at, updated_text, label="Update") -%}
+<span class="job" data-job-status="{{ status_url }}" data-job-update="{{ update_url }}"
+      data-job-version="{{ version or '' }}" data-job-csrf="{{ csrf_token() }}">
+  <span class="status" data-job-el="status" role="status"{% if updated_at %} data-gd-epoch="{{ updated_at }}" data-gd-rel data-gd-prefix="updated "{% endif %}>
+    {%- if updated_at %}updated {{ updated_text }}{% else %}not built yet{% endif -%}
+  </span>
+  <span class="prog hidden" data-job-el="prog">
+    <span class="prog-label" data-job-el="label">starting…</span>
+    <span class="prog-bar" aria-hidden="true"><span class="prog-fill" data-job-el="fill"></span></span>
+  </span>
+  <button class="{{ 'tlc-btn tlc-btn--secondary tlc-btn--sm' if tlc_design == 'tlc' }}" data-job-el="button" type="button">{{ label }}</button>
+</span>
+<script src="{{ url_for('static', filename='tlc-job.js') }}" defer></script>
+{%- endmacro %}

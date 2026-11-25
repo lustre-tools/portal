@@ -1,0 +1,98 @@
+/* Patch Status in the TLC design: the page body (.ps, from
+   portal/patch_status/render.py) drawn the way components.css draws its
+   tables, tags and badges. Colours only from the --tlc-* tokens, so the
+   themes and the high-contrast palettes all work. */
+
+.ps { font-size: var(--tlc-text-sm); line-height: var(--tlc-leading-dense); }
+.ps h2 { font-size: var(--tlc-text-lg); margin: var(--tlc-space-6) 0 var(--tlc-space-3); }
+.ps h2 .n { font-variant-numeric: tabular-nums; }
+.ps .meta { color: var(--tlc-muted); margin: 0 0 var(--tlc-space-4); max-width: none; }
+.ps .meta code { font-size: var(--tlc-text-xs); }
+.ps p { max-width: none; }
+/* A dense table of links reads better without an underline on each. */
+.ps a { text-decoration: none; }
+.ps a:hover { text-decoration: underline; }
+
+/* tables, as .tlc-table inside .tlc-table-wrap */
+.ps table { border-collapse: separate; border-spacing: 0; background: var(--tlc-surface);
+            font-size: var(--tlc-text-sm); line-height: var(--tlc-leading-dense); }
+.ps th, .ps td { padding: var(--tlc-space-1) var(--tlc-space-2); border-bottom: 1px solid var(--tlc-border);
+                 text-align: left; vertical-align: top; }
+.ps thead th { background: var(--tlc-surface-2); color: var(--tlc-text); font-weight: 700; white-space: nowrap;
+               border-bottom: 2px solid var(--tlc-border-strong); }
+.ps tbody tr:last-child td { border-bottom: 0; }
+.ps .num { text-align: right; font-variant-numeric: tabular-nums; }
+.ps .sum { border: 1px solid var(--tlc-border); border-radius: var(--tlc-radius); overflow: hidden; margin-bottom: var(--tlc-space-4); }
+.ps .sum td, .ps .sum th { padding: var(--tlc-space-1) var(--tlc-space-3); }
+.ps .scroll { overflow-x: auto; border: 1px solid var(--tlc-border); border-radius: var(--tlc-radius); background: var(--tlc-surface); }
+.ps .list { width: 100%; min-width: 100%; }
+.ps .list th button { all: unset; cursor: pointer; display: inline-flex; gap: .3em; align-items: center; font-weight: 700; }
+.ps .list th button:focus-visible { outline: var(--tlc-focus-width) solid var(--tlc-focus); outline-offset: 2px; }
+.ps th[aria-sort="ascending"] button::after { content: "\25B2" / ""; font-size: .7em; }
+.ps th[aria-sort="descending"] button::after { content: "\25BC" / ""; font-size: .7em; }
+.ps .list tbody tr:hover td { background: var(--tlc-accent-wash); }
+
+.ps .mid { text-align: center; white-space: nowrap; }
+.ps .c-change, .ps .c-issue, .ps .c-uploaded, .ps .c-updated { white-space: nowrap; }
+.ps .c-change a { font-family: var(--tlc-mono); }
+.ps .c-summary { min-width: 13rem; }
+.ps .c-comment { min-width: 12rem; }
+/* a hashtag stays whole; the cell wraps between them */
+.ps .c-topic { min-width: 11rem; max-width: 14rem; }
+.ps .c-topic a { white-space: nowrap; }
+.ps td.c-component { color: var(--tlc-text-2); }
+
+.ps .good { color: var(--tlc-good-text); }
+.ps .bad { color: var(--tlc-bad-text); }
+.ps .warn { color: var(--tlc-warn-text); }
+
+/* release blockers and priorities: a coloured edge and wash, like .tlc-row */
+.ps tr.is-blocker td { background: var(--tlc-bad-wash); }
+.ps tr.is-priority td { background: var(--tlc-warn-wash); }
+.ps tr.is-blocker td:first-child { box-shadow: inset 4px 0 var(--tlc-bad); }
+.ps tr.is-priority td:first-child { box-shadow: inset 4px 0 var(--tlc-warn); }
+.ps tr.blocked td { background: var(--tlc-bad-wash); }
+.ps tr.blocked td:first-child { box-shadow: inset 4px 0 var(--tlc-bad-border); }
+.ps .badge { display: inline-flex; align-items: center; justify-content: center; min-width: 1.3rem; height: 1.15rem;
+             padding: 0 .3em; border-radius: var(--tlc-radius-pill); font: 700 var(--tlc-text-xs)/1 var(--tlc-mono); vertical-align: 1px; }
+.ps .badge.blocker { background: var(--tlc-bad); color: var(--tlc-on-accent); }
+.ps .badge.priority { background: var(--tlc-warn); color: var(--tlc-on-accent); }
+.ps a.blocker { color: var(--tlc-bad-text); font-weight: 700; }
+.ps a.priority { color: var(--tlc-warn-text); font-weight: 700; }
+
+/* legend and the release lists, as cards */
+.ps details { background: var(--tlc-surface); border: 1px solid var(--tlc-border); border-radius: var(--tlc-radius);
+              padding: var(--tlc-space-2) var(--tlc-space-4); margin: var(--tlc-space-2) 0; }
+.ps summary { font-weight: 700; }
+.ps dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--tlc-space-1) var(--tlc-space-4); margin: var(--tlc-space-3) 0; }
+.ps dt { font-weight: 700; }
+.ps dd { margin: 0; max-width: none; }
+.ps details ul { margin: var(--tlc-space-3) 0; padding-left: var(--tlc-space-5); }
+.ps details li { max-width: none; }
+
+/* search: stays at the top while the buckets scroll */
+.ps .filter { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: var(--tlc-space-2) var(--tlc-space-4);
+              align-items: center; background: var(--tlc-page); padding: var(--tlc-space-3) 0;
+              border-bottom: 1px solid var(--tlc-border); margin-top: var(--tlc-space-4); }
+.ps .box { position: relative; flex: 1 1 18rem; max-width: 40rem; }
+.ps .filter input, .ps .filter select { font: inherit; color: var(--tlc-text); background: var(--tlc-surface);
+                                         border: 2px solid var(--tlc-border-strong); border-radius: var(--tlc-radius-sm);
+                                         min-height: var(--tlc-target-dense); }
+.ps .filter input { width: 100%; padding: 0 var(--tlc-space-3); }
+.ps .filter select { padding: 0 var(--tlc-space-2); }
+.ps .filter input:focus-visible, .ps .filter select:focus-visible { border-color: var(--tlc-focus); outline: none; }
+.ps .filter label { display: inline-flex; align-items: center; gap: var(--tlc-space-2); color: var(--tlc-text-2); }
+.ps .hits { color: var(--tlc-muted); }
+.ps #ps-suggest { position: absolute; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: var(--tlc-space-1); list-style: none;
+                  background: var(--tlc-surface); border: 1px solid var(--tlc-border-strong); border-radius: var(--tlc-radius);
+                  box-shadow: var(--tlc-shadow-pop); max-height: 60vh; overflow-y: auto; }
+.ps #ps-suggest li { display: flex; gap: var(--tlc-space-2); padding: var(--tlc-space-1) var(--tlc-space-2); margin: 0;
+                     border-radius: var(--tlc-radius-sm); cursor: pointer; max-width: none; }
+.ps #ps-suggest li[aria-selected=true] { background: var(--tlc-accent-wash); }
+.ps #ps-suggest .kind { flex: 0 0 5.5rem; color: var(--tlc-muted); font-size: var(--tlc-text-xs); }
+.ps #ps-suggest .what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ps #ps-suggest .count { color: var(--tlc-muted); font-size: var(--tlc-text-xs); font-variant-numeric: tabular-nums; }
+
+.ps section { scroll-margin-top: 4rem; }
+.ps [hidden] { display: none; }
+@media (max-width: 40rem) { .ps dl { grid-template-columns: 1fr; } }

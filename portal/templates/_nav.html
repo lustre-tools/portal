@@ -1,0 +1,38 @@
+{# The site's navigation bar, shared by the classic layout (base.html) and
+   the TLC one (tlc/layout.html). A page names its tab by setting
+   active_tab at the top level of its template. Styled by nav.css, which
+   both layouts load, so it looks the same on every page. #}
+{% macro tab(name) %}{% if active_tab == name %}nav-active{% endif %}{% endmacro %}
+<nav class="navbar">
+    <div class="nav-left">
+        <a href="/" class="nav-brand">{{ site_name }}</a>
+        {# The optional ones appear only when the operator has configured them. #}
+        {% if dashboard_prefix %}
+        <a href="{{ dashboard_prefix }}" class="nav-link {{ tab('dashboard') }}">Gerrit Dashboard</a>
+        {% endif %}
+        {% if promises_enabled %}
+        <a href="{{ url_for('promises.index') }}" class="nav-link {{ tab('promises') }}">Gerrit Promises</a>
+        {% endif %}
+        <a href="{{ url_for('gerrit_vis.index') }}" class="nav-link {{ tab('gerrit_vis') }}">Gerrit Visualizer</a>
+        {% if patch_status_enabled %}
+        <a href="{{ url_for('patch_status.index') }}" class="nav-link {{ tab('patch_status') }}">Patch Status</a>
+        {% endif %}
+        {% if private_prefix and private_role in current_roles %}
+        <a href="{{ private_prefix }}/" class="nav-link {{ tab('private') }}">{{ private_label }}</a>
+        {% endif %}
+    </div>
+    <div class="nav-right">
+        {% if current_user %}
+        <span class="nav-user">
+            {{ current_user }}{% if 'admin' in current_roles %} (admin){% endif %}
+        </span>
+        {# POST so a third-party page cannot log you out with an <img> tag. #}
+        <form method="post" action="{{ url_for('auth.logout') }}" class="nav-logout">
+            {{ csrf_field() }}
+            <button type="submit" class="link-button">Logout</button>
+        </form>
+        {% else %}
+        <a href="{{ url_for('auth.login') }}">Login</a>
+        {% endif %}
+    </div>
+</nav>

@@ -97,6 +97,11 @@ def create_app(overrides=None, testing=False):
 
     init_promises(app)
 
+    if app.config.get("PATCH_STATUS_ENABLED"):
+        from portal.blueprints.patch_status import patch_status_bp
+
+        app.register_blueprint(patch_status_bp, url_prefix="/patch_status")
+
     @app.context_processor
     def _chrome():
         """Values every template's header needs."""
@@ -112,6 +117,12 @@ def create_app(overrides=None, testing=False):
             "private_theme": app.config.get("PRIVATE_THEME") or "",
             "dashboard_prefix": app.config.get("DASHBOARD_PREFIX") or "",
             "promises_enabled": bool(app.config.get("PROMISES_ENABLED")),
+            "patch_status_enabled": bool(app.config.get("PATCH_STATUS_ENABLED")),
+            # Pages in the TLC design (templates/tlc/): the viewer's choice
+            # between it and the classic design is the Gerrit Dashboard's
+            # gd-design cookie, so one choice covers both.
+            "tlc_design": "classic" if request.cookies.get("gd-design") == "classic" else "tlc",
+            "tlc_default_theme": app.config.get("DEFAULT_THEME") or "light",
             "current_user": current_user(),
             "current_roles": current_roles(),
         }

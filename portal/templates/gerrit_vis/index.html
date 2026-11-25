@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Gerrit Visualizer - {{ site_name }}{% endblock %}
 {% block container_class %}container-wide{% endblock %}
-{% block nav_active %}nav-active{% endblock %}
+{% set active_tab = "gerrit_vis" %}
 
 {% block head %}
 {% if authenticated %}

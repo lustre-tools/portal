@@ -5,39 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}{{ site_name }}{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='nav.css') }}">
     {% block head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
-    <nav class="navbar">
-        <div class="nav-left">
-            <a href="/" class="nav-brand">{{ site_name }}</a>
-            {# The optional ones appear only when the operator has configured them. #}
-            {% if dashboard_prefix %}
-            <a href="{{ dashboard_prefix }}" class="nav-link {% block nav_active_dash %}{% endblock %}">Gerrit Dashboard</a>
-            {% endif %}
-            {% if promises_enabled %}
-            <a href="{{ url_for('promises.index') }}" class="nav-link {% block nav_active_promises %}{% endblock %}">Gerrit Promises</a>
-            {% endif %}
-            <a href="{{ url_for('gerrit_vis.index') }}" class="nav-link {% block nav_active %}{% endblock %}">Gerrit Visualizer</a>
-            {% if private_prefix and private_role in current_roles %}
-            <a href="{{ private_prefix }}/" class="nav-link {% block nav_active_private %}{% endblock %}">{{ private_label }}</a>
-            {% endif %}
-        </div>
-        <div class="nav-right">
-            {% if current_user %}
-            <span class="nav-user">
-                {{ current_user }}{% if 'admin' in current_roles %} (admin){% endif %}
-            </span>
-            {# POST so a third-party page cannot log you out with an <img> tag. #}
-            <form method="post" action="{{ url_for('auth.logout') }}" class="nav-logout">
-                {{ csrf_field() }}
-                <button type="submit" class="link-button">Logout</button>
-            </form>
-            {% else %}
-            <a href="{{ url_for('auth.login') }}">Login</a>
-            {% endif %}
-        </div>
-    </nav>
+    {% include "_nav.html" %}
 
     <main class="container {% block container_class %}{% endblock %}">
         {% with messages = get_flashed_messages(with_categories=true) %}

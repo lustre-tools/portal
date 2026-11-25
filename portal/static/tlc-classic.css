@@ -1,0 +1,92 @@
+/* Pages in the classic design (templates/tlc/layout.html with the classic
+   design chosen): the palette and the frame -- top bar, status and
+   progress, banner, footer. The palette and the Display-menu mapping are
+   gerrit-dashboard's classic design (templates/classic/_theme.html), so a
+   viewer who picked Classic there sees the same here. The shared Display
+   menu sets html[data-theme]; none means follow the system. */
+
+:root {
+  --bg: #0d1117; --panel: #161b22; --panel2: #21262d; --border: #30363d;
+  --ink: #e6edf3; --muted: #8b949e; --link: #58a6ff;
+  --ok: #3fb950; --bad: #f85149; --warn: #d29922; --run: #58a6ff; --tag: #bc8cff;
+  --ok-rgb: 63,185,80; --bad-rgb: 248,81,73; --warn-rgb: 210,153,34;
+  --run-rgb: 88,166,255; --tag-rgb: 188,140,255;
+  --shadow: rgba(0,0,0,.5);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+html[data-theme="light"] {
+  --bg: #ffffff; --panel: #f6f8fa; --panel2: #eaeef2; --border: #d0d7de;
+  --ink: #1f2328; --muted: #59636e; --link: #0969da;
+  --ok: #1a7f37; --bad: #d1242f; --warn: #9a6700; --run: #0969da; --tag: #8250df;
+  --ok-rgb: 26,127,55; --bad-rgb: 209,36,47; --warn-rgb: 154,103,0;
+  --run-rgb: 9,105,218; --tag-rgb: 130,80,223;
+  --shadow: rgba(140,149,159,.35);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: light) {
+  html:not([data-theme]) {
+    --bg: #ffffff; --panel: #f6f8fa; --panel2: #eaeef2; --border: #d0d7de;
+    --ink: #1f2328; --muted: #59636e; --link: #0969da;
+    --ok: #1a7f37; --bad: #d1242f; --warn: #9a6700; --run: #0969da; --tag: #8250df;
+    --ok-rgb: 26,127,55; --bad-rgb: 209,36,47; --warn-rgb: 154,103,0;
+    --run-rgb: 9,105,218; --tag-rgb: 130,80,223;
+    --shadow: rgba(140,149,159,.35);
+    color-scheme: light;
+  }
+}
+
+/* The Display menu is a TLC component: point its tokens at this palette.
+   Three :root outrank every theme and contrast block in tokens.css. */
+:root:root:root {
+  --tlc-page: var(--bg); --tlc-surface: var(--panel); --tlc-surface-2: var(--panel2);
+  --tlc-surface-3: var(--panel2); --tlc-border: var(--border); --tlc-border-strong: var(--muted);
+  --tlc-text: var(--ink); --tlc-text-2: var(--ink); --tlc-muted: var(--muted);
+  --tlc-accent: var(--link); --tlc-accent-solid: var(--link); --tlc-accent-solid-hover: var(--link);
+  --tlc-on-accent: var(--bg); --tlc-accent-wash: rgba(var(--run-rgb), .12);
+  --tlc-shadow-pop: 0 8px 24px var(--shadow);
+  --tlc-font: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+/* This design is px-based, so text size scales the page below the navbar;
+   the root size only sizes the menu, to match the 13px text. */
+html:root, html:root[data-text-size] { font-size: 87.5%; }
+html[data-text-size="s"] .page-zoom { zoom: .9375; }
+html[data-text-size="l"] .page-zoom { zoom: 1.125; }
+html[data-text-size="xl"] .page-zoom { zoom: 1.25; }
+html[data-gd-size="xs"] .page-zoom { zoom: .875; }
+
+* { box-sizing: border-box; }
+html { scrollbar-color: var(--panel2) var(--bg); }
+body { margin: 0; background: var(--bg); color: var(--ink);
+       font: 13px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.page-zoom button, .page-zoom select {
+  background: var(--panel2); color: var(--ink); border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.page-zoom button:hover, .page-zoom select:hover { border-color: var(--muted); }
+.page-zoom button:disabled { opacity: .5; cursor: default; }
+.hidden { display: none !important; }
+
+.wrap { max-width: 1560px; margin: 0 auto; padding: 0 24px 48px; }
+.wrap--full { max-width: none; }
+.page-topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 24px;
+               border-bottom: 1px solid var(--border); }
+.page-topbar .page-title { font-size: 15px; font-weight: 600; }
+.page-topbar .ident { color: var(--muted); font-size: 12px; }
+.page-topbar .right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.job { display: inline-flex; align-items: center; gap: 10px; }
+.status { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.prog { display: flex; align-items: center; gap: 8px; }
+.prog-label { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.prog-bar { width: 150px; height: 6px; border-radius: 3px; background: var(--panel2); overflow: hidden; }
+.prog-fill { display: block; height: 100%; width: 0; border-radius: 3px;
+             background: var(--link); transition: width .4s ease; }
+.prog-fill.indet { width: 30%; animation: page-indet 1.2s ease-in-out infinite; }
+@keyframes page-indet { 0% { margin-left: 0; } 50% { margin-left: 70%; } 100% { margin-left: 0; } }
+@media (prefers-reduced-motion: reduce) { .prog-fill.indet { animation: none; } }
+
+.banner { background: rgba(var(--bad-rgb),.1); border: 1px solid rgba(var(--bad-rgb),.4);
+          color: var(--bad); border-radius: 4px; padding: 6px 10px; margin: 12px 0; font-size: 12px; }
+.note { color: var(--muted); }
+footer.page-foot { color: var(--muted); font-size: 12px; margin-top: 24px; border-top: 1px solid var(--border); padding-top: 8px; }

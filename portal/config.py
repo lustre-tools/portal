@@ -137,6 +137,9 @@ def build_config(testing=False):
         private_prefix = "/" + private_prefix
     private_dir = _env("PRIVATE_DIR") or os.path.join(data_dir, "private")
     promises_dir = _env("PROMISES_DIR") or os.path.join(data_dir, "promises")
+    patch_status_dir = _env("PATCH_STATUS_DIR") or os.path.join(data_dir, "patch_status")
+    public_project = _env("PUBLIC_PROJECT", "fs/lustre-release")
+    default_theme = (_env("DEFAULT_THEME", "light") or "light").lower()
 
     return {
         "SECRET_KEY": _secret_key(testing),
@@ -174,7 +177,7 @@ def build_config(testing=False):
         # What counts as public. Anything else is "internal" and needs a
         # role to see. Changing this changes the whole visibility model,
         # so it is read in exactly one place.
-        "PUBLIC_PROJECT": _env("PUBLIC_PROJECT", "fs/lustre-release"),
+        "PUBLIC_PROJECT": public_project,
         "TICKET_PREFIX": (_env("TICKET_PREFIX", "LU")).upper(),
         "CI_VOTERS": _env_list("CI_VOTERS", ("maloo", "jenkins")),
         # Scheduling
@@ -191,6 +194,23 @@ def build_config(testing=False):
         # a portal without one should not advertise it.
         "DASHBOARD_PREFIX": (_env("DASHBOARD_PREFIX", "") or "").rstrip("/"),
         "DASHBOARD_APP_PATH": _env("DASHBOARD_APP_PATH", "/gerrit_dash_app/"),
+        # Pages in the TLC design (templates/tlc/): the theme a first visit
+        # gets -- auto (the viewer's system), light or dark. The viewer
+        # changes it under Display, and that choice is kept.
+        "DEFAULT_THEME": default_theme if default_theme in ("auto", "light", "dark") else "light",
+        # Patch Status (portal/patch_status): every open change of a branch
+        # by what it still needs to land. Off unless asked for. It reads
+        # Gerrit and Jira without logging in. ORGS: an optional JSON file
+        # mapping owners' email domains to organisations (see
+        # patch_status/orgs.py); without it there is no Org column.
+        # MIN_INTERVAL: seconds between two runs, however often Update is
+        # pressed -- a run is ~2400 Gerrit requests.
+        "PATCH_STATUS_ENABLED": (_env("PATCH_STATUS", "0") or "0").lower() in ("1", "true", "yes"),
+        "PATCH_STATUS_DIR": os.path.abspath(patch_status_dir),
+        "PATCH_STATUS_PROJECT": _env("PATCH_STATUS_PROJECT") or public_project,
+        "PATCH_STATUS_BRANCH": _env("PATCH_STATUS_BRANCH", "master"),
+        "PATCH_STATUS_ORGS": _env("PATCH_STATUS_ORGS") or None,
+        "PATCH_STATUS_MIN_INTERVAL": max(60, _env_int("PATCH_STATUS_MIN_INTERVAL", 900)),
         # The external `gc` CLI (gerrit-cli). Override to pin a specific
         # binary; otherwise it is found next to the running interpreter.
         "GC_BIN": _env("GC_BIN") or _default_gc_bin(),

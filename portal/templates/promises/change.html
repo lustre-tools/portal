@@ -2,7 +2,7 @@
 {% from "promises/_macros.html" import status_chip, location, who, repeats with context %}
 {% block title %}{{ v.number }} promises - {{ site_name }}{% endblock %}
 {% block container_class %}container-wide{% endblock %}
-{% block nav_active_promises %}nav-active{% endblock %}
+{% set active_tab = "promises" %}
 
 {% macro followup_link(f) -%}
 <a href="{{ gerrit_url }}/{{ f.number }}" target="_blank" rel="noopener" class="mono">{{ f.number }}</a>

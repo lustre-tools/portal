@@ -1,0 +1,77 @@
+/* Patch Status in the classic design: the page as it looked on its own.
+   Light is that page's palette exactly; dark takes the classic design's
+   palette (tlc-classic.css), so the Display menu's theme works here too. */
+
+:root {
+  --ps-text: #1a1a1a; --ps-bg: #f6f7f9; --ps-surface: #fff; --ps-head: #f2f4f6;
+  --ps-border: #dde1e6; --ps-border-strong: #c6ccd3; --ps-muted: #4b5563; --ps-faint: #6b7280;
+  --ps-link: #2563eb; --ps-good: #15803d; --ps-bad: #dc2626; --ps-warn: #b45309;
+  --ps-blocker-row: #fff1f1; --ps-priority-row: #fffaeb; --ps-blocked-row: #fee2e2;
+  --ps-hover: #eef3fb; --ps-selected: #e0e7ff;
+  --ps-badge-blocker: #dc2626; --ps-badge-priority: #b45309;
+  --ps-tag-blocker: #b91c1c; --ps-tag-priority: #92400e; --ps-stripe-priority: #d97706;
+  --ps-shadow: rgba(16,24,40,.18);
+}
+html[data-theme="dark"] {
+  --ps-text: var(--ink); --ps-bg: var(--bg); --ps-surface: var(--panel); --ps-head: var(--panel2);
+  --ps-border: var(--border); --ps-border-strong: var(--muted); --ps-muted: var(--muted); --ps-faint: var(--muted);
+  --ps-link: var(--link); --ps-good: var(--ok); --ps-bad: var(--bad); --ps-warn: var(--warn);
+  --ps-blocker-row: rgba(var(--bad-rgb),.12); --ps-priority-row: rgba(var(--warn-rgb),.12);
+  --ps-blocked-row: rgba(var(--bad-rgb),.22); --ps-hover: rgba(var(--run-rgb),.12); --ps-selected: rgba(var(--run-rgb),.22);
+  --ps-badge-blocker: #da3633; --ps-badge-priority: #9e6a03;
+  --ps-tag-blocker: var(--bad); --ps-tag-priority: var(--warn); --ps-stripe-priority: var(--warn);
+  --ps-shadow: rgba(0,0,0,.5);
+}
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) {
+    --ps-text: var(--ink); --ps-bg: var(--bg); --ps-surface: var(--panel); --ps-head: var(--panel2);
+    --ps-border: var(--border); --ps-border-strong: var(--muted); --ps-muted: var(--muted); --ps-faint: var(--muted);
+    --ps-link: var(--link); --ps-good: var(--ok); --ps-bad: var(--bad); --ps-warn: var(--warn);
+    --ps-blocker-row: rgba(var(--bad-rgb),.12); --ps-priority-row: rgba(var(--warn-rgb),.12);
+    --ps-blocked-row: rgba(var(--bad-rgb),.22); --ps-hover: rgba(var(--run-rgb),.12); --ps-selected: rgba(var(--run-rgb),.22);
+    --ps-badge-blocker: #da3633; --ps-badge-priority: #9e6a03;
+    --ps-tag-blocker: var(--bad); --ps-tag-priority: var(--warn); --ps-stripe-priority: var(--warn);
+    --ps-shadow: rgba(0,0,0,.5);
+  }
+}
+
+body { background: var(--ps-bg); }
+.page-topbar { border-bottom-color: var(--ps-border); }
+
+.ps{color:var(--ps-text);background:var(--ps-bg);padding:16px 0;font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif}
+.ps h2{font-size:17px;margin:28px 0 8px}
+.ps a{color:var(--ps-link);text-decoration:none}.ps a:hover{text-decoration:underline}
+.ps .meta{color:var(--ps-muted);margin:0 0 12px}.ps code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.ps table{border-collapse:collapse;background:var(--ps-surface)}
+.ps th,.ps td{border:1px solid var(--ps-border);padding:3px 7px;text-align:left;vertical-align:top}
+.ps th{background:var(--ps-head);white-space:nowrap}.ps .num{text-align:right}
+.ps .sum{margin-bottom:12px}.ps .list{font-size:13px;min-width:100%}
+.ps .scroll{overflow-x:auto}
+.ps th button{all:unset;cursor:pointer;font-weight:600}.ps th button:focus-visible{outline:2px solid var(--ps-link)}
+.ps th[aria-sort=ascending] button::after{content:" ▲";font-size:9px}.ps th[aria-sort=descending] button::after{content:" ▼";font-size:9px}
+.ps .mid{text-align:center;white-space:nowrap}.ps .c-change,.ps .c-issue,.ps .c-uploaded,.ps .c-updated{white-space:nowrap}
+.ps .c-summary{min-width:260px}.ps .c-comment{min-width:220px}.ps .c-topic{max-width:220px;overflow-wrap:anywhere}
+.ps .good{color:var(--ps-good)}.ps .bad{color:var(--ps-bad)}.ps .warn{color:var(--ps-warn)}
+.ps tr.is-blocker td{background:var(--ps-blocker-row)}.ps tr.is-priority td{background:var(--ps-priority-row)}
+.ps tr.is-blocker td:first-child{box-shadow:inset 3px 0 var(--ps-bad)}.ps tr.is-priority td:first-child{box-shadow:inset 3px 0 var(--ps-stripe-priority)}
+.ps .badge{display:inline-block;min-width:15px;padding:0 3px;border-radius:4px;color:#fff;font:700 11px/15px ui-monospace,Menlo,monospace;text-align:center}
+.ps .badge.blocker{background:var(--ps-badge-blocker)}.ps .badge.priority{background:var(--ps-badge-priority)}
+.ps a.blocker{color:var(--ps-tag-blocker);font-weight:600}.ps a.priority{color:var(--ps-tag-priority);font-weight:600}
+.ps tr.blocked td{background:var(--ps-blocked-row)}
+.ps .list tbody tr:hover td{background:var(--ps-hover)}
+.ps details{background:var(--ps-surface);border:1px solid var(--ps-border);border-radius:6px;padding:6px 12px;margin:8px 0}
+.ps summary{cursor:pointer;font-weight:600}.ps dl{display:grid;grid-template-columns:max-content 1fr;gap:2px 14px;margin:8px 0}
+.ps dt{font-weight:600}.ps dd{margin:0}.ps details ul{margin:8px 0;padding-left:20px}
+.ps .filter{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;background:var(--ps-bg);padding:10px 0;border-bottom:1px solid var(--ps-border)}
+.ps .box{position:relative;flex:1 1 260px;max-width:560px}
+.ps .filter input{width:100%;box-sizing:border-box;font:inherit;padding:5px 9px;border:1px solid var(--ps-border-strong);border-radius:6px;background:var(--ps-surface);color:var(--ps-text)}
+.ps .filter select{font:inherit;padding:4px;background:var(--ps-surface);color:var(--ps-text);border:1px solid var(--ps-border-strong);border-radius:4px}.ps .hits{color:var(--ps-muted)}
+.ps #ps-suggest{position:absolute;left:0;right:0;top:calc(100% + 3px);margin:0;padding:4px;list-style:none;background:var(--ps-surface);border:1px solid var(--ps-border-strong);border-radius:6px;box-shadow:0 12px 32px var(--ps-shadow);max-height:60vh;overflow-y:auto}
+.ps #ps-suggest li{display:flex;gap:8px;padding:4px 8px;border-radius:4px;cursor:pointer}
+.ps #ps-suggest li[aria-selected=true]{background:var(--ps-selected)}
+.ps #ps-suggest .kind{flex:0 0 78px;color:var(--ps-faint);font-size:12px;line-height:20px}
+.ps #ps-suggest .what{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ps #ps-suggest .count{color:var(--ps-faint);font-size:12px;line-height:20px}
+.ps section{scroll-margin-top:56px}
+.ps [hidden]{display:none}
+@media (max-width:640px){.ps dl{grid-template-columns:1fr}}

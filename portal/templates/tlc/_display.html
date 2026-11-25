@@ -1,0 +1,208 @@
+{# Display settings shared by both designs: one menu, one set of saved
+   settings. Taken from gerrit-dashboard's _display_head.html,
+   _display_extras.html and _local_time.html, with the same storage keys
+   and cookies (tlc-display, gd-display, gd-design), so a viewer's choices
+   on the dashboard and on these pages are one and the same.
+   tlc/layout.html adds each design's stylesheets. #}
+<meta name="color-scheme" content="light dark">
+<script>
+  // Runs before the display settings are applied, so a dark page never
+  // flashes light.  A first visit gets the deployment's default theme
+  // (GD_DEFAULT_THEME); a viewer who picked a theme in the old picker
+  // (the gd-theme cookie) keeps it.
+  (function () {
+    try {
+      if (localStorage.getItem('tlc-display')) return;
+      var old = (document.cookie.match(/(?:^|;\s*)gd-theme=([a-z-]+)/) || [])[1]
+                || localStorage.getItem('gd-theme');
+      var t = old ? (old === 'dark' ? 'dark' : 'light') : {{ tlc_default_theme | tojson }};
+      if (t !== 'dark' && t !== 'light') return;
+      var v = JSON.stringify({theme: t});
+      localStorage.setItem('tlc-display', v);
+      document.cookie = 'tlc-display=' + encodeURIComponent(v) + '; path=/; max-age=31536000; SameSite=Lax';
+    } catch (e) {}
+  })();
+  // The dashboard's own display settings (font, Smallest text), kept apart
+  // from the vendored TLC control's; _display_extras.html adds their buttons.
+  (function () {
+    try {
+      var s = JSON.parse(localStorage.getItem('gd-display') || 'null');
+      if (!s) {
+        var m = document.cookie.match(/(?:^|;\s*)gd-display=([^;]+)/);
+        if (m) s = JSON.parse(decodeURIComponent(m[1]));
+      }
+      if (s && s.size === 'xs') document.documentElement.dataset.gdSize = 'xs';
+      if (s && s.font === 'classic' && {{ 'true' if tlc_design == 'tlc' else 'false' }}) document.documentElement.dataset.gdFont = 'classic';
+    } catch (e) {}
+  })();
+</script>
+<script src="{{ url_for('static', filename='tlc/js/tlc-display.js') }}"></script>
+<script>
+/*
+ * Additions to the TLC Display panel, which both designs share:
+ * a "Smallest" text size, a Design switch, and a Font choice where there is
+ * one to make (the TLC design without TLC branding; the classic design has
+ * a single font and no high-contrast palette, so Font and Contrast go).
+ * The TLC script is vendored and must not be edited, so its panel is
+ * extended after it is built.  These buttons carry no data-key, which the
+ * TLC click handler ignores; this script owns them and keeps the Text size
+ * group showing exactly one pressed button.
+ */
+(function () {
+  "use strict";
+  var KEY = "gd-display";
+  var BRANDED = false;
+  var DESIGN = {{ tlc_design | tojson }};
+  var FONT_CHOICE = DESIGN === "tlc" && !BRANDED;
+  var SWITCHABLE = true;
+  var root = document.documentElement;
+
+  function read() {
+    var s = null;
+    try { s = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
+    if (!s) {
+      var m = document.cookie.match(/(?:^|;\s*)gd-display=([^;]+)/);
+      if (m) { try { s = JSON.parse(decodeURIComponent(m[1])); } catch (e) {} }
+    }
+    return s || {};
+  }
+  function save(s) {
+    var v = JSON.stringify(s);
+    try { localStorage.setItem(KEY, v); } catch (e) {}
+    try {
+      document.cookie = KEY + "=" + encodeURIComponent(v) + "; path=/; max-age=31536000; SameSite=Lax";
+    } catch (e) {}
+  }
+  function apply(s) {
+    if (s.size === "xs") root.dataset.gdSize = "xs"; else delete root.dataset.gdSize;
+    if (s.font === "classic" && FONT_CHOICE) root.dataset.gdFont = "classic"; else delete root.dataset.gdFont;
+  }
+
+  var settings = read();
+  apply(settings);
+
+  function sync(panel) {
+    var xs = settings.size === "xs";
+    panel.querySelectorAll('button[data-gd="size"]').forEach(function (b) {
+      b.setAttribute("aria-pressed", String(xs));
+    });
+    // TLC re-marks its own current size on every click in the panel.
+    if (xs) panel.querySelectorAll('button[data-key="size"]').forEach(function (b) {
+      b.setAttribute("aria-pressed", "false");
+    });
+    var font = settings.font || "hyperlegible";
+    panel.querySelectorAll('button[data-gd="font"]').forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.value === font));
+    });
+  }
+
+  function extend(panel) {
+    var first = panel.querySelector('button[data-key="size"]');
+    if (first) {
+      var xs = document.createElement("button");
+      xs.type = "button";
+      xs.textContent = "Smallest";
+      xs.dataset.gd = "size";
+      first.parentNode.insertBefore(xs, first);
+    }
+    function group(legend, html) {
+      var fs = document.createElement("fieldset");
+      fs.className = "tlc-display__group";
+      fs.innerHTML = "<legend>" + legend + '</legend><div class="tlc-seg">' + html + "</div>";
+      panel.appendChild(fs);
+    }
+    if (DESIGN === "classic") {
+      var contrast = panel.querySelector('button[data-key="contrast"]');
+      if (contrast) contrast.closest("fieldset").remove();
+    }
+    if (FONT_CHOICE) group("Font",
+      '<button type="button" data-gd="font" data-value="hyperlegible">Hyperlegible</button>' +
+      '<button type="button" data-gd="font" data-value="classic">Classic</button>');
+    // The design is chosen server-side (gd-design cookie), so switching reloads.
+    if (SWITCHABLE) group("Design",
+      '<button type="button" data-gd="design" data-value="tlc" aria-pressed="' + (DESIGN === "tlc") + '">TLC</button>' +
+      '<button type="button" data-gd="design" data-value="classic" aria-pressed="' + (DESIGN === "classic") + '">Classic</button>');
+
+    // Registered after TLC's own listener on the same panel, so it runs
+    // second and sees TLC's state already updated.
+    panel.addEventListener("click", function (e) {
+      var mine = e.target.closest("button[data-gd]");
+      if (mine && mine.dataset.gd === "design") {
+        if (mine.dataset.value === DESIGN) return;
+        try {
+          document.cookie = mine.dataset.value === "classic"
+            ? "gd-design=classic; path=/; max-age=31536000; SameSite=Lax"
+            : "gd-design=; path=/; max-age=0; SameSite=Lax";
+        } catch (e) {}
+        location.reload();
+        return;
+      }
+      if (mine) {
+        if (mine.dataset.gd === "size") settings.size = "xs";
+        else if (mine.dataset.value === "classic") settings.font = "classic";
+        else delete settings.font;
+      } else if (e.target.closest('button[data-key="size"]')) {
+        delete settings.size;    // a TLC size was picked instead
+      } else if (!e.target.closest("button[data-key]")) {
+        return;
+      }
+      apply(settings);
+      save(settings);
+      sync(panel);
+    });
+    sync(panel);
+  }
+
+  function init() {
+    document.querySelectorAll("[data-tlc-display] .tlc-pop__panel").forEach(extend);
+  }
+  // Both scripts sit in <head>: TLC registered its DOMContentLoaded builder
+  // first, so the panel exists by the time this runs.
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+  else init();
+})();
+</script>
+<script>
+/*
+ * Timestamps in the viewer's own timezone.  The server only knows UTC, so
+ * an element with data-gd-epoch (seconds) is rewritten here; data-gd-rel
+ * appends the age ("· 2h ago", same buckets as the board index) and
+ * data-gd-rel-only shows just the age, all kept current once a minute.
+ * Without JavaScript the server's UTC text stays.
+ */
+(function () {
+  "use strict";
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  function local(epoch) {
+    var d = new Date(epoch * 1000), tz = "";
+    try {
+      var part = new Intl.DateTimeFormat(undefined, { timeZoneName: "short" })
+        .formatToParts(d).filter(function (p) { return p.type === "timeZoneName"; })[0];
+      if (part) tz = " " + part.value;
+    } catch (e) {}
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " +
+      pad(d.getHours()) + ":" + pad(d.getMinutes()) + tz;
+  }
+  function ago(epoch) {
+    var s = Math.max(0, Math.floor(Date.now() / 1000 - epoch));
+    if (s < 90) return "just now";
+    if (s < 3600) return Math.floor(s / 60) + "m ago";
+    if (s < 86400) return Math.floor(s / 3600) + "h ago";
+    return Math.floor(s / 86400) + "d ago";
+  }
+  function text(epoch, rel) { return local(epoch) + (rel ? " · " + ago(epoch) : ""); }
+  function render(root) {
+    (root || document).querySelectorAll("[data-gd-epoch]").forEach(function (el) {
+      var epoch = parseFloat(el.dataset.gdEpoch);
+      if (!epoch) return;
+      el.textContent = "gdRelOnly" in el.dataset ? ago(epoch)
+        : (el.dataset.gdPrefix || "") + text(epoch, "gdRel" in el.dataset);
+      el.title = new Date(epoch * 1000).toISOString().replace("T", " ").slice(0, 19) + " UTC";
+    });
+  }
+  window.gdTime = { local: local, ago: ago, text: text, render: render };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", function () { render(); });
+  else render();
+  setInterval(render, 60000);
+})();
+</script>
