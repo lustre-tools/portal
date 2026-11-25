@@ -9,6 +9,8 @@ its first open change up to the change, with ``git merge-tree`` (no
 checkout). That is how the community wiki's Patch Status decides its C
 column; on 2026-11-25 the two agreed on 176 of 178 changes. When a change
 below fails, the change records which one (the Comment column names it).
+A patch set wc-checkpatch voted -1 on does not apply already; it is
+neither fetched nor picked, and the series stops there.
 
 The repository is the run's own (DIR/repo.git). With a local clone of the
 project configured (GRAPH_CONFLICTS_REPO) it borrows that clone's objects
@@ -157,13 +159,24 @@ def try_picks(
     if not picks:
         return 0
     by_number = {c["_number"]: c for c in changes}
-    chains = {ch["_number"]: series(ch, by_number) for ch in picks}
+
+    def voted(step):
+        # The fetch sets mergeable False for wc-checkpatch's -1 on the
+        # current patch set: known not to apply, no need to try it.
+        other = by_number.get(step[0]) or {}
+        return other.get("current_revision_number") == step[1] and other.get("mergeable") is False
+
+    chains = {}
+    for ch in picks:
+        chain = series(ch, by_number)
+        stop = next((i for i, step in enumerate(chain) if voted(step)), None)
+        chains[ch["_number"]] = chain if stop is None else chain[:stop + 1]
     repo = Repo(os.path.join(directory, "repo.git"), borrow_from)
     try:
         repo.ensure()
         progress("fetching patch sets", 0, None)
         repo.fetch(f"{gerrit_url.rstrip('/')}/{project}", branch,
-                   {step for chain in chains.values() for step in chain})
+                   {step for chain in chains.values() for step in chain if not voted(step)})
         base = repo.rev(f"refs/heads/{branch}")
         # A series' prefix is shared by every change above it: pick each
         # step once. done[(n, ps)] = the commit after it, or the change
@@ -174,7 +187,7 @@ def try_picks(
             head, failed = base, None
             for step in chains[ch["_number"]]:
                 if step not in done:
-                    new = repo.pick(head, repo.rev(f"refs/ps/{step[0]}/{step[1]}"))
+                    new = None if voted(step) else repo.pick(head, repo.rev(f"refs/ps/{step[0]}/{step[1]}"))
                     done[step] = (new, None) if new else (None, step[0])
                 head, failed = done[step]
                 if failed:

@@ -471,15 +471,22 @@ def test_trial_picks_follow_the_series_onto_today_s_branch(upstream, tmp_path):
 
 
 @needs_merge_tree
-def test_a_stale_rebase_vote_does_not_hold_back_a_change_that_applies(upstream, tmp_path):
-    from portal.patch_status.trial import try_picks
+def test_a_rebase_vote_is_taken_as_it_is(upstream, tmp_path, monkeypatch):
+    from portal.patch_status import trial
 
     root, shas = upstream
-    ch = add_review(picked(101, shas[101]), "wc-checkpatch", -1)
-    ch["mergeable"] = not is_rebase_vote(ch)
-    try_picks([ch], directory=str(tmp_path / "ps"), gerrit_url=f"file://{root}", project="up.git", branch="master")
-    classify([ch])
-    assert ch["bucket"] == READY_TO_LAND
+    series = (103, 102)
+    b, c = picked(102, shas[102], series), picked(103, shas[103], series)
+    add_review(b, "wc-checkpatch", -1)
+    b["mergeable"] = not is_rebase_vote(b)
+    fetched, tried = [], []
+    real_fetch, real_pick = trial.Repo.fetch, trial.Repo.pick
+    monkeypatch.setattr(trial.Repo, "fetch", lambda self, url, br, ps: (fetched.extend(ps), real_fetch(self, url, br, ps))[1])
+    monkeypatch.setattr(trial.Repo, "pick", lambda self, onto, sha: (tried.append(sha), real_pick(self, onto, sha))[1])
+    trial.try_picks([b, c], directory=str(tmp_path / "ps"), gerrit_url=f"file://{root}",
+                    project="up.git", branch="master")
+    assert fetched == [] and tried == []
+    assert b["mergeable"] is False and c["mergeable"] is False and c["_merge_blocked_by"] == 102
 
 
 def test_without_a_reachable_project_the_votes_stand(tmp_path):
